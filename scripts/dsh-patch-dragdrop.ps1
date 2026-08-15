@@ -1,11 +1,14 @@
 # dsh-patch-dragdrop.ps1
-# Re-applies the two local compatibility patches for @omdsh-dev/dsh-drag-and-drop
+# Re-applies the local compatibility patches for @omdsh-dev/dsh-drag-and-drop
 # after `dsh plugin update` overwrites node_modules.
 #
 # Patch 1: es.exe invocation drops the unsupported `-whole-filename` flag
 #          (ES 1.1.0.37 prints usage help instead of results when it sees it).
 # Patch 2: Windows search output (es.exe / powershell.exe) is decoded as GBK,
 #          fixing Chinese/Unicode path resolution on codepage-936 systems.
+# Patch 3: client.js appendPaths uses input.pasteBegin (the composer's paste
+#          transaction) instead of setDraft, fixing draft-snapshot desync that
+#          caused leftover text, white overlay, and input-box loss after send.
 #
 # Idempotent: safe to run any number of times.
 $ErrorActionPreference = "Stop"
@@ -16,6 +19,42 @@ if (-not (Test-Path $lib)) {
 }
 $content = [System.IO.File]::ReadAllText($lib)
 $changed = $false
+
+# --- Patch 3: client.js appendPaths -> pasteBegin ----------------------------
+$clientLib = Join-Path $env:USERPROFILE ".dsh\profiles\web\node_modules\@omdsh-dev\dsh-drag-and-drop\lib\client.js"
+if (Test-Path $clientLib) {
+    $cc = [System.IO.File]::ReadAllText($clientLib)
+    if ($cc -match 'typeof input\.pasteBegin === "function"') {
+        Write-Host "[SKIP] Patch 3 already applied (pasteBegin)"
+    } else {
+        $old = 'function appendPaths(input, paths) {' +
+            "`r`n`t`t`tconst draft = input.state.getSnapshot().draft;" +
+            "`r`n`t`t`tconst text = paths.join(`"`n`");" +
+            "`r`n`t`t`tinput.setDraft(draft === `"`" ? text : `"`${draft}`n`" + text);" +
+            "`r`n`t`t}"
+        $new = 'function appendPaths(input, paths) {' +
+            "`r`n`t`t`tconst draft = input.state.getSnapshot().draft;" +
+            "`r`n`t`t`tconst text = paths.join(`"`n`");" +
+            "`r`n`t`t`tif (typeof input.pasteBegin === `"function`") {" +
+            "`r`n`t`t`t`tconst pos = draft.length;" +
+            "`r`n`t`t`t`tinput.pasteBegin(draft === `"`" ? text : `"`n`" + text, { start: pos, end: pos });" +
+            "`r`n`t`t`t`tif (typeof input.invalidatePaste === `"function`") input.invalidatePaste();" +
+            "`r`n`t`t`t} else {" +
+            "`r`n`t`t`t`tinput.setDraft(draft === `"`" ? text : `"`${draft}`n`" + text);" +
+            "`r`n`t`t`t}" +
+            "`r`n`t`t}"
+        if ($cc.Contains($old)) {
+            $cc = $cc.Replace($old, $new)
+            [System.IO.File]::WriteAllText($clientLib, $cc)
+            Write-Host "[OK] Patch 3 applied (pasteBegin)"
+            $changed = $true
+        } else {
+            Write-Host "[WARN] Patch 3 anchor not found - client.js layout changed?"
+        }
+    }
+} else {
+    Write-Host "[WARN] client.js not found - Patch 3 skipped"
+}
 
 # --- Patch 1: remove -whole-filename flag -----------------------------------
 $bad = "`t`t`t`t`"-whole-filename`",`r`n`t`t`t`tname"

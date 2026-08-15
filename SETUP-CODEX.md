@@ -35,13 +35,14 @@ dsh plugin --profile web add @linxin666/dsh-web-ui-all@0.1.12
 若报 `ERR_PNPM_IGNORED_BUILDS`：编辑 `~\.dsh\profiles\web\pnpm-workspace.yaml`，
 把 `allowBuilds` 下的 `cloudflared / cpu-features / ssh2` 都设为 `true`，重跑上面命令。
 
-## 4. 安装 7 个本地插件（link:）
+## 4. 安装 8 个本地插件（link:）
 
 逐个执行（路径用 `$Kit\plugins-src\<名>`）：
 
 ```powershell
 $Kit = "C:\Users\<用户名>\Downloads\dsh-setup-kit"
 dsh plugin --profile web add "$Kit\plugins-src\dsh-drag-and-drop"
+dsh plugin --profile web add "$Kit\plugins-src\dsh-drop-to-path"
 dsh plugin --profile web add "$Kit\plugins-src\dsh-chat-import"
 dsh plugin --profile web add "$Kit\plugins-src\dsh-file-claim"
 dsh plugin --profile web add "$Kit\plugins-src\dsh-file-mentions"
@@ -49,8 +50,9 @@ dsh plugin --profile web add "$Kit\plugins-src\dsh-plugin-anydoc"
 dsh plugin --profile web add "$Kit\plugins-src\dsh-plugin-ocr"
 dsh plugin --profile web add "$Kit\plugins-src\dsh-plugin-writing-guard"
 ```
-> 这些包已带好补丁：drag-and-drop（-whole-filename + GBK 中文路径）、writing-guard（Config 兼容 cordis 4 修复）。
+> 这些包已带好补丁：drag-and-drop（-whole-filename + GBK 中文路径 + pasteBegin 输入框修复）、writing-guard（Config 兼容 cordis 4 修复）。
 > **不要**对它们执行 `dsh plugin update`，也不要重编译（会覆盖补丁）。
+> 提示：dsh-drag-and-drop 与 dsh-drop-to-path 功能相近，二选一或都用（drop-to-path 在发送时转路径，不碰输入框草稿）。
 
 ## 5. 修复 link 插件的运行时依赖（junction，关键！）
 
@@ -77,7 +79,7 @@ New-Item -ItemType Junction -Path "$src\node_modules" -Target "$src\.dsh-runtime
 ```powershell
 Copy-Item "$Kit\skills\*" "$env:USERPROFILE\.dsh\skills\" -Recurse -Force
 ```
-（21 个技能，含 nature-* 系列与 web-access 浏览器控制）
+（21 个技能：nature-* 系列、web-access 浏览器控制等）
 
 ## 7. 复制管理器脚本 + 修改机器相关路径
 

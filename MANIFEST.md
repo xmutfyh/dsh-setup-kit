@@ -3,21 +3,22 @@
 > 本包是源机器（2026-08-15）DSH 环境的完整快照。目标机器用 Codex 安装请照
 > [SETUP-CODEX.md](SETUP-CODEX.md) 逐步执行。
 
-## 插件（plugins-src/，7 个，全部已带补丁，link: 安装）
+## 插件（plugins-src/，8 个，全部已带补丁，link: 安装）
 
 | 目录 | 版本 | 功能 | 补丁 |
 |---|---|---|---|
-| dsh-drag-and-drop | 0.1.4 | 拖文件→路径 | ✅ -whole-filename 兼容 + GBK 中文路径解码 |
+| dsh-drag-and-drop | 0.1.4 | 拖文件→路径 | ✅ -whole-filename 兼容 + GBK 中文路径解码 + pasteBegin/invalidatePaste 输入框修复 |
+| dsh-drop-to-path | - | 图片/文件→发送时转工作区路径（附件栏方块，不碰输入框草稿）| - |
 | dsh-chat-import | - | 导入 Codex/Claude/ChatGPT 会话 | - |
 | dsh-file-claim | - | 多会话文件锁 | - |
 | dsh-file-mentions | - | 回复路径可点击 | - |
 | dsh-plugin-anydoc | - | 任意文件→Markdown | - |
 | dsh-plugin-ocr | 0.1.0 | 本地 OCR（RapidOCR，需 pip 装 rapidocr_onnxruntime） | - |
-| dsh-plugin-writing-guard | 0.2.0 | AI 写作痕迹守卫 | ✅ Config 兼容 cordis 4（`export const Config`→`const DEFAULT_CONFIG`） |
+| dsh-plugin-writing-guard | 0.5.0 | AI 写作痕迹守卫 | ✅ Config 兼容 cordis 4（`export const Config`→`const DEFAULT_CONFIG`） |
 
 npm 插件（第 3 步安装，不在包内）：`@linxin666/dsh-web-ui-all@0.1.12`（任务看板/Git图谱/右侧面板/实时token/皮肤/SSH/宠物/手机远控）
 
-## 技能（skills/，21 个）
+## 技能（skills/，21 个 + 2 资源目录）
 
 nature-* 系列（写作/引用/检索/审稿/回复/数据/图表/PPT/专利等）、academic-research-suite、
 ppt-master、web-access（浏览器 CDP 控制）、scientific-image2-visio 等。

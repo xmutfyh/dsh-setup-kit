@@ -624,7 +624,16 @@ window.__ModuleLoader__.load({
 		function appendPaths(input, paths) {
 			const draft = input.state.getSnapshot().draft;
 			const text = paths.join("\n");
-			input.setDraft(draft === "" ? text : `${draft}\n${text}`);
+			// pasteBegin（机器粘贴事务）在末尾插入路径；selection 必填。
+			// 立即 invalidatePaste() 取消异步"引用升级"——否则路径会被 chipify 成
+			// 白色占位块（尾部白色遮挡）+ chip span 数学错乱（删除残留/发送后输入框消失）。
+			if (typeof input.pasteBegin === "function") {
+				const pos = draft.length;
+				input.pasteBegin(draft === "" ? text : `\n${text}`, { start: pos, end: pos });
+				if (typeof input.invalidatePaste === "function") input.invalidatePaste();
+			} else {
+				input.setDraft(draft === "" ? text : `${draft}\n${text}`);
+			}
 		}
 		async function resolveDrop(ctx, dataTransfer, toast) {
 			const input = currentInput(ctx);
