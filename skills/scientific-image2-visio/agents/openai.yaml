@@ -1,0 +1,7 @@
+interface:
+  display_name: "Scientific Image 2 → Visio"
+  short_description: "将 Image 2 科研图按论文结构真值重建为可编辑 Visio"
+  default_prompt: "Use $scientific-image2-visio to analyze the manuscript, references, Image 2 prompt, and selected generated image, then rebuild the figure as editable VSDX, SVG, and PNG."
+
+policy:
+  allow_implicit_invocation: false

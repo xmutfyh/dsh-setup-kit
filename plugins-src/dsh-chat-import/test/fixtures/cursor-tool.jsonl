@@ -1,0 +1,5 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\nList files and read the config.\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Let me inspect the workspace."}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Glob","input":{"target_directory":".","glob_pattern":"**/*.rs"}}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"path":"config.json"}}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Found the config."}]}}

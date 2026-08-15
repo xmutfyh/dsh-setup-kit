@@ -1,0 +1,638 @@
+{
+  "version": "1.0",
+  "figure_id": "multidomain_diffusion_architecture",
+  "title": "Multi-domain diffusion architecture",
+  "language": "source",
+  "truth_priority": [
+    "user_corrections",
+    "manuscript",
+    "references",
+    "image2_prompt",
+    "generated_image"
+  ],
+  "source": {
+    "generated_image": "example_reference.png",
+    "paper_files": [
+      "source/paper.pdf"
+    ],
+    "reference_files": [
+      "source/reference-01.pdf"
+    ],
+    "image2_prompt_file": "source/image2_prompt.txt",
+    "source_manifest": "source/source_manifest.json",
+    "caption": "",
+    "method_facts": [
+      "Condition Net has four encoder levels and four decoder levels.",
+      "Condition Net has four skip connections.",
+      "Guidance variable is three rows by four connected cubes.",
+      "Denoising Net has four encoder levels, four decoder levels, and four guidance inputs.",
+      "Fusion Distribution contains four segmented cubes."
+    ],
+    "reference_facts": [],
+    "unresolved_items": []
+  },
+  "page": {
+    "width": 1180,
+    "height": 452,
+    "units": "px",
+    "origin": "top-left",
+    "target_width_in": 13.333,
+    "background": "#FFF9F3"
+  },
+  "style": {
+    "profile": "scientific_pastel",
+    "palette": {
+      "pink": "#D95B96",
+      "light_pink": "#F7DDE9",
+      "purple": "#8D6AC8",
+      "orange": "#F3A55B",
+      "grey": "#A9A9A9"
+    },
+    "global_notes": [
+      "warm-white background",
+      "soft pastel scientific illustration"
+    ]
+  },
+  "regions": [
+    {
+      "id": "global_review",
+      "source_bbox_px": [
+        0,
+        0,
+        1180,
+        452
+      ],
+      "target_bbox": [
+        0,
+        0,
+        1180,
+        452
+      ],
+      "categories": [
+        "global"
+      ],
+      "crop_type": "global",
+      "required_crop_types": [
+        "global"
+      ],
+      "required_labels": [
+        "Observation",
+        "Condition Net",
+        "Denoising Net",
+        "Diffusion process"
+      ],
+      "required_component_motifs": [
+        "whole scientific architecture layout"
+      ],
+      "required_edge_motifs": [
+        "left-to-right global flow"
+      ],
+      "required_ports_or_boundaries": [
+        "major module boundaries"
+      ],
+      "text_layout_facts": [
+        "titles sit close to their modules"
+      ],
+      "box_style_facts": [
+        "warm-white canvas with pale pink and purple regions"
+      ],
+      "line_style_facts": [
+        "thin grey connectors"
+      ],
+      "shadow_facts": [
+        "no heavy shadows"
+      ],
+      "density_facts": [
+        "wide horizontal publication layout"
+      ],
+      "status": "draft"
+    },
+    {
+      "id": "observation",
+      "source_bbox_px": [
+        25,
+        80,
+        220,
+        300
+      ],
+      "target_bbox": [
+        25,
+        80,
+        220,
+        300
+      ],
+      "categories": [
+        "input",
+        "small_text"
+      ],
+      "crop_type": "input",
+      "required_crop_types": [
+        "input",
+        "small_text"
+      ],
+      "required_labels": [
+        "Observation",
+        "D₁",
+        "D₂",
+        "D₃"
+      ],
+      "required_component_motifs": [
+        "three-domain waveform panel"
+      ],
+      "required_edge_motifs": [
+        "observation output"
+      ],
+      "required_ports_or_boundaries": [
+        "right output boundary"
+      ],
+      "text_layout_facts": [
+        "domain labels align with waveform rows"
+      ],
+      "box_style_facts": [
+        "white rounded panel"
+      ],
+      "line_style_facts": [
+        "three colored waveform paths"
+      ],
+      "shadow_facts": [
+        "no shadow"
+      ],
+      "density_facts": [
+        "exactly three waveform rows"
+      ],
+      "status": "draft"
+    },
+    {
+      "id": "condition",
+      "source_bbox_px": [
+        210,
+        35,
+        550,
+        290
+      ],
+      "target_bbox": [
+        210,
+        35,
+        550,
+        290
+      ],
+      "categories": [
+        "core",
+        "arrow_dense"
+      ],
+      "crop_type": "core",
+      "required_crop_types": [
+        "core",
+        "arrow_dense"
+      ],
+      "required_labels": [
+        "Condition Net"
+      ],
+      "required_component_motifs": [
+        "four-level scientific U-Net"
+      ],
+      "required_edge_motifs": [
+        "four skip connections"
+      ],
+      "required_ports_or_boundaries": [
+        "left input",
+        "right output"
+      ],
+      "text_layout_facts": [
+        "title above the network"
+      ],
+      "box_style_facts": [
+        "pale pink rounded background"
+      ],
+      "line_style_facts": [
+        "four thin skip paths"
+      ],
+      "shadow_facts": [
+        "soft or absent shadow"
+      ],
+      "density_facts": [
+        "4 encoder + bottleneck + 4 decoder"
+      ],
+      "status": "draft"
+    },
+    {
+      "id": "guidance",
+      "source_bbox_px": [
+        430,
+        250,
+        725,
+        430
+      ],
+      "target_bbox": [
+        430,
+        250,
+        725,
+        430
+      ],
+      "categories": [
+        "small_text"
+      ],
+      "crop_type": "small_text",
+      "required_crop_types": [
+        "small_text"
+      ],
+      "required_labels": [
+        "Guidance variable"
+      ],
+      "required_component_motifs": [
+        "3 by 4 segmented cube grid"
+      ],
+      "required_edge_motifs": [
+        "guidance handoff"
+      ],
+      "required_ports_or_boundaries": [
+        "grid output"
+      ],
+      "text_layout_facts": [
+        "label stays above or beside the grid"
+      ],
+      "box_style_facts": [
+        "three-dimensional cube faces"
+      ],
+      "line_style_facts": [
+        "thin cube outlines"
+      ],
+      "shadow_facts": [
+        "no drop shadow"
+      ],
+      "density_facts": [
+        "exactly 12 cubes: 3 rows by 4 columns"
+      ],
+      "status": "draft"
+    },
+    {
+      "id": "denoising",
+      "source_bbox_px": [
+        610,
+        35,
+        970,
+        295
+      ],
+      "target_bbox": [
+        610,
+        35,
+        970,
+        295
+      ],
+      "categories": [
+        "arrow_dense"
+      ],
+      "crop_type": "arrow_dense",
+      "required_crop_types": [
+        "arrow_dense"
+      ],
+      "required_labels": [
+        "Denoising Net"
+      ],
+      "required_component_motifs": [
+        "four-level scientific U-Net"
+      ],
+      "required_edge_motifs": [
+        "four skip connections",
+        "four guidance inputs"
+      ],
+      "required_ports_or_boundaries": [
+        "left input",
+        "right output",
+        "four bottom guidance ports"
+      ],
+      "text_layout_facts": [
+        "title above network"
+      ],
+      "box_style_facts": [
+        "pale purple rounded background"
+      ],
+      "line_style_facts": [
+        "four skip paths and four guidance arrows"
+      ],
+      "shadow_facts": [
+        "soft or absent shadow"
+      ],
+      "density_facts": [
+        "4 encoder + bottleneck + 4 decoder"
+      ],
+      "status": "draft"
+    },
+    {
+      "id": "diffusion",
+      "source_bbox_px": [
+        700,
+        290,
+        1160,
+        445
+      ],
+      "target_bbox": [
+        700,
+        290,
+        1160,
+        445
+      ],
+      "categories": [
+        "output"
+      ],
+      "crop_type": "output",
+      "required_crop_types": [
+        "output"
+      ],
+      "required_labels": [
+        "X₀",
+        "Xₜ₋₁",
+        "Xₜ",
+        "X_T",
+        "Diffusion process"
+      ],
+      "required_component_motifs": [
+        "four-state diffusion timeline"
+      ],
+      "required_edge_motifs": [
+        "forward process",
+        "dashed feedback"
+      ],
+      "required_ports_or_boundaries": [
+        "timeline endpoints"
+      ],
+      "text_layout_facts": [
+        "state labels centered under symbols"
+      ],
+      "box_style_facts": [
+        "white timeline cards"
+      ],
+      "line_style_facts": [
+        "thin grey forward arrows and dashed return"
+      ],
+      "shadow_facts": [
+        "no heavy shadow"
+      ],
+      "density_facts": [
+        "exactly four labeled states"
+      ],
+      "status": "draft"
+    }
+  ],
+  "modules": [
+    {
+      "id": "observation_panel",
+      "type": "multi_domain_signal_panel",
+      "bbox": [
+        35,
+        105,
+        165,
+        165
+      ],
+      "region_id": "observation",
+      "label": "Observation",
+      "parameters": {
+        "domains": 3,
+        "domain_labels": [
+          "D₁",
+          "D₂",
+          "D₃"
+        ],
+        "seed": 7,
+        "cycles": [
+          2.2,
+          3.0,
+          4.1
+        ]
+      },
+      "style": {
+        "fill": "#FFFFFF",
+        "line": "#D7CFC8"
+      },
+      "z": 10
+    },
+    {
+      "id": "condition_bg",
+      "type": "soft_architecture_background",
+      "bbox": [
+        230,
+        55,
+        300,
+        215
+      ],
+      "region_id": "condition",
+      "parameters": {
+        "shape": "rounded",
+        "title": "Condition Net",
+        "allow_overlap": true
+      },
+      "style": {
+        "fill": "#FBE7EF",
+        "line": "none",
+        "transparency_pct": 6
+      },
+      "z": 1
+    },
+    {
+      "id": "condition_net",
+      "type": "scientific_unet",
+      "bbox": [
+        250,
+        78,
+        265,
+        160
+      ],
+      "region_id": "condition",
+      "label": "Condition Net",
+      "parameters": {
+        "levels": 4,
+        "skip_connections": 4,
+        "guidance_inputs": 0,
+        "background_visible": false
+      },
+      "style": {
+        "encoder_fill": "#D95B96",
+        "decoder_fill": "#ED99BE",
+        "center_fill": "#F0B35F"
+      },
+      "z": 20
+    },
+    {
+      "id": "guidance_grid",
+      "type": "segmented_cube_grid",
+      "bbox": [
+        470,
+        315,
+        225,
+        72
+      ],
+      "region_id": "guidance",
+      "label": "Guidance variable",
+      "parameters": {
+        "rows": 3,
+        "columns": 4,
+        "depth_x_in": 0.1,
+        "depth_y_in": -0.08
+      },
+      "style": {
+        "row_fills": [
+          "#D95B96",
+          "#F3A55B",
+          "#B77DD1"
+        ]
+      },
+      "z": 25
+    },
+    {
+      "id": "denoising_bg",
+      "type": "soft_architecture_background",
+      "bbox": [
+        645,
+        55,
+        305,
+        220
+      ],
+      "region_id": "denoising",
+      "parameters": {
+        "shape": "rounded",
+        "title": "Denoising Net",
+        "allow_overlap": true
+      },
+      "style": {
+        "fill": "#EFE7FA",
+        "line": "none",
+        "transparency_pct": 5
+      },
+      "z": 1
+    },
+    {
+      "id": "denoising_net",
+      "type": "scientific_unet",
+      "bbox": [
+        670,
+        78,
+        260,
+        160
+      ],
+      "region_id": "denoising",
+      "label": "Denoising Net",
+      "parameters": {
+        "levels": 4,
+        "skip_connections": 4,
+        "guidance_inputs": 4,
+        "background_visible": false
+      },
+      "style": {
+        "encoder_fill": "#7A63B5",
+        "decoder_fill": "#AF93D8",
+        "center_fill": "#F0B35F"
+      },
+      "z": 20
+    },
+    {
+      "id": "diffusion_timeline",
+      "type": "diffusion_timeline",
+      "bbox": [
+        735,
+        325,
+        390,
+        90
+      ],
+      "region_id": "diffusion",
+      "label": "Diffusion process",
+      "parameters": {
+        "states": [
+          "X₀",
+          "Xₜ₋₁",
+          "Xₜ",
+          "X_T"
+        ],
+        "state_kinds": [
+          "signal",
+          "signal",
+          "cube",
+          "noise"
+        ],
+        "ellipsis_after": [
+          1
+        ],
+        "feedback": true,
+        "process_label": "Diffusion process"
+      },
+      "style": {
+        "line": "#8A8A8A"
+      },
+      "z": 20
+    }
+  ],
+  "connectors": [
+    {
+      "id": "observation_to_condition",
+      "type": "dynamic_connector",
+      "from": "observation_panel:right",
+      "to": "condition_net:left",
+      "route": "rounded_orthogonal",
+      "glue": true,
+      "region_id": "condition",
+      "semantic_intent": "data_flow",
+      "certainty": "certain",
+      "source_bbox_px": [
+        100,
+        100,
+        900,
+        280
+      ],
+      "must_not_cross": [],
+      "relative_position_facts": [
+        "observation_panel:right is left of condition_net:left"
+      ],
+      "direction": "left_to_right"
+    },
+    {
+      "id": "condition_to_denoising",
+      "type": "dynamic_connector",
+      "from": "condition_net:right",
+      "to": "denoising_net:left",
+      "route": "rounded_orthogonal",
+      "glue": true,
+      "region_id": "denoising",
+      "semantic_intent": "data_flow",
+      "certainty": "certain",
+      "source_bbox_px": [
+        100,
+        100,
+        900,
+        280
+      ],
+      "must_not_cross": [],
+      "relative_position_facts": [
+        "condition_net:right is left of denoising_net:left"
+      ],
+      "direction": "left_to_right"
+    }
+  ],
+  "locked_regions": [],
+  "acceptance": {
+    "no_full_image_background": true,
+    "native_text": true,
+    "semantic_groups": true,
+    "glued_connectors": true,
+    "required_module_counts": {
+      "scientific_unet": 2,
+      "segmented_cube_grid": 1,
+      "multi_domain_signal_panel": 1,
+      "diffusion_timeline": 1
+    },
+    "required_parameters": {
+      "condition_net.levels": 4,
+      "condition_net.skip_connections": 4,
+      "guidance_grid.rows": 3,
+      "guidance_grid.columns": 4,
+      "denoising_net.levels": 4,
+      "denoising_net.skip_connections": 4,
+      "denoising_net.guidance_inputs": 4
+    },
+    "required_connectors": [
+      "observation_to_condition",
+      "condition_to_denoising"
+    ],
+    "notes": [
+      "Structure takes priority over pixel similarity."
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "pubs.geoscienceworld.org": {
+    "host": "pubs.geoscienceworld.org",
+    "strategy": "observed",
+    "outcome": "library_no_permission",
+    "transport": null,
+    "verifiedAt": "2026-07-23T06:10:29.840Z",
+    "observations": 1
+  }
+}

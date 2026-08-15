@@ -1,0 +1,20 @@
+{
+  "id": "ses_extras003",
+  "title": "Refactor module",
+  "directory": "E:/demo/opencode-proj",
+  "createdAt": 1786000200000,
+  "model": "deepseek-v4-flash",
+  "messages": [
+    { "id": "msg_eu1", "role": "user", "createdAt": 1786000200001, "parts": [ { "type": "text", "text": "重构这个模块" } ] },
+    { "id": "msg_ea1", "role": "assistant", "createdAt": 1786000200002, "cwd": "E:/demo/opencode-proj", "parts": [
+        { "type": "step-start" },
+        { "type": "file", "mime": "image/png", "filename": "diagram.png", "url": "data:image/png;base64,AAAA" },
+        { "type": "tool", "tool": "bash", "callID": "call_ext", "state": { "status": "completed", "input": { "command": "git diff" } } },
+        { "type": "patch", "hash": "abc123", "files": ["src/a.rs", "src/b.rs"] },
+        { "type": "subtask", "agent": "build", "description": "跑测试", "command": "npm test", "model": { "id": "deepseek-v4-flash", "providerID": "opencode-go" }, "prompt": "run tests" },
+        { "type": "text", "text": "重构完成。" },
+        { "type": "step-finish", "reason": "stop" },
+        { "type": "compaction", "auto": true, "tail_start_id": "msg_ea1" }
+      ] }
+  ]
+}

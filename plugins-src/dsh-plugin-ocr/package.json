@@ -1,0 +1,30 @@
+{
+  "name": "dsh-plugin-ocr",
+  "version": "0.1.0",
+  "description": "DSH plugin: local OCR (RapidOCR ONNX) for images — register ocr_image tool for the agent",
+  "type": "module",
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "scripts",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  }
+}

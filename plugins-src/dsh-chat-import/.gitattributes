@@ -1,0 +1,4 @@
+# 仓库内文本统一 LF：text=auto 保证 commit 进库的 blob 恒为 LF（不受提交者
+# autocrlf 设置影响），.mjs 额外强制工作树也保持 LF，消除跨机/跨会话行尾噪音。
+* text=auto
+*.mjs text eol=lf

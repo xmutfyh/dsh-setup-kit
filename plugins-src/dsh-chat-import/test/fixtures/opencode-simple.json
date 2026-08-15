@@ -1,0 +1,11 @@
+{
+  "id": "ses_simple001",
+  "title": "Fix the build",
+  "directory": "E:/demo/opencode-proj",
+  "createdAt": 1786000000000,
+  "model": "deepseek-v4-flash",
+  "messages": [
+    { "id": "msg_su1", "role": "user", "createdAt": 1786000000001, "parts": [ { "type": "text", "text": "帮我看看构建失败的原因" } ] },
+    { "id": "msg_sa1", "role": "assistant", "createdAt": 1786000000002, "cwd": "E:/demo/opencode-proj", "model": "deepseek-v4-pro", "parts": [ { "type": "text", "text": "是缺少依赖，补上即可。" } ] }
+  ]
+}

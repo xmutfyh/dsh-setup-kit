@@ -1,0 +1,95 @@
+{
+  "name": "dsh-chat-import",
+  "description": "Import Claude Code / Codex / ChatGPT / Cursor / Gemini / Reasonix / Pi Coding Agent / opencode / ZCode / Grok Build / OpenClaw / Hermes conversation histories as resumable DeepSeek Harness sessions",
+  "version": "0.3.0",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./export.mjs": "./export.mjs",
+    "./CHANGELOG.md": "./CHANGELOG.md",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "convert.mjs",
+    "export.mjs",
+    "lib/imports.mjs",
+    "lib/backfill.mjs",
+    "lib/client.js",
+    "lib/discovery.mjs",
+    "lib/convert",
+    "lib/hermes.mjs",
+    "lib/opencode.mjs",
+    "lib/zcode.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "assets/import.svg",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.0-rc.6",
+    "react": ">=18.0.0"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "dsh",
+    "claude-code",
+    "codex",
+    "chatgpt",
+    "cursor",
+    "gemini",
+    "reasonix",
+    "pi-coding-agent",
+    "opencode",
+    "zcode",
+    "grokbuild",
+    "openclaw",
+    "hermes",
+    "sqlite",
+    "import",
+    "jsonl",
+    "migration",
+    "transcript"
+  ],
+  "author": "Nwflower <1679659@qq.com>",
+  "homepage": "https://github.com/Nwflower/dsh-chat-import",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nwflower/dsh-chat-import.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Nwflower/dsh-chat-import/issues"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "lint": "eslint .",
+    "prepublishOnly": "npm test && git diff --quiet && git diff --cached --quiet && npm pack --dry-run"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^10.8.1"
+  }
+}

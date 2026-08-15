@@ -1,0 +1,93 @@
+# CI：push/PR 时跑 npm test。
+# 插件零运行时依赖；@deepseek-ai/dsh-tools 是 peerDependencies（npm 7+ 自动安装），
+# 已在 npm registry 公开（0.1.0-rc.6 可用），因此全新 checkout 可直接安装并测试。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # 严格按 package-lock.json 复现依赖树（与 npm install 不同，lockfile 与 package.json 不一致时直接失败）
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      # REQ-10：eslint flat config（无插件），与 test 同机跑，违规即红
+      - run: npm run lint
+      # 双语 README 结构同步护栏（REQ-06）：README.md 与 README.zh-CN.md 的
+      # 标题层级序列与语言无关锚点键必须一致；某一版删/加/改标题即红（翻译差异不误报）
+      - run: node .github/scripts/check-readme-sync.mjs
+      # 锁文件漂移护栏：package.json 改了版本/依赖而未同步 lockfile 时，
+      # npm 重算出的 lockfile 与仓库版本不一致 → git diff 非空 → 该步红
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: git diff --exit-code -- package-lock.json
+      # 发布面回归护栏：files 白名单缺失/拼错会在此失败
+      - run: npm pack --dry-run
+
+  # REQ-05 headless 真实加载冒烟：装 npm latest 的 dsh CLI → link 装本 checkout 插件 →
+  # 起本地 mock LLM（CI 无 API key，DEEPSEEK_BASE_URL 指向本地 mock，全程离线）→
+  # dsh --profile headless "hi" 完整走真实 boot + 插件激活审计（assertEntriesActivated）+
+  # 一次 LLM 回合，exit 0 才绿。
+  # 目的：DSH 新版本发布后，若破坏 host 服务契约（sessionPersistence / fs / tools /
+  # workspaceRegistry 等），此 job 立即红——不用等发布后手工验证。
+  # 独立 job 而非 test job 内 step：DSH 侧破坏不影响单测信号（单测不依赖 dsh），
+  # 且与 test 并行；dsh 安装成本只发生在此 job。
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # dsh plugin 子命令在 profile 目录内转发 pnpm；ubuntu 镜像不自带 pnpm，显式安装。
+      # @deepseek-ai/dsh 装 npm latest（当前 0.1.0-rc.6）——冒烟对象就是"最新发布的 dsh"。
+      - name: Install dsh CLI (latest) and pnpm
+        run: |
+          npm i -g @deepseek-ai/dsh
+          npm i -g pnpm@11
+      # 插件 peer（@deepseek-ai/dsh-tools）按插件真实路径（checkout）解析，缺 checkout
+      # 自己的 node_modules 会 ERR_MODULE_NOT_FOUND——先 npm ci（本仓库零运行时依赖，很快）
+      - name: Install checkout deps (peer @deepseek-ai/dsh-tools)
+        run: npm ci --no-audit --no-fund
+      # CI 测的是 checkout 自身（未发布的版本），用 link 而非 npm 包名；
+      # dsh plugin add 做 bundle 核对，把声明 dsh.bundle.patch 的插件写进 bundles 层。
+      # DSH_HOME 用 step 级 env（runner 上下文在 job 级 env 不可用——会导致 workflow
+      # 校验失败、整个 ci.yml 无法加载），且只在需要 dsh 的 step 注入。
+      - name: Add checkout as plugin (link) into headless profile
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-home
+        run: dsh plugin --profile headless add "link:${GITHUB_WORKSPACE}"
+      # 插件行必须出现在合成树里——防「插件根本没进树但 boot 正常」的假绿
+      - name: Assert plugin row is composed into the tree
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-home
+        run: dsh --profile headless --dump-config | grep -Fq -- import-claude
+      # 真实加载冒烟：完整 boot（含插件激活审计）+ 一次 LLM 回合。
+      # DEEPSEEK_API_KEY 用假值、DEEPSEEK_BASE_URL 指向本地 mock（dsh-llm-deepseek
+      # 每请求读该 env），无真实凭据、无外网依赖、结果确定。
+      # mock LLM 脚本外置 .github/scripts/dsh-mock-llm.mjs（heredoc 内联大段 JS
+      # 会让 GitHub 的 workflow YAML 校验失败，导致整个 ci.yml 无法加载）。
+      - name: Headless real-load smoke (boot + plugin activation + one LLM turn)
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-home
+          DEEPSEEK_API_KEY: smoke-key-not-used
+          DEEPSEEK_BASE_URL: http://127.0.0.1:8790
+        run: |
+          node "${GITHUB_WORKSPACE}/.github/scripts/dsh-mock-llm.mjs" > "${RUNNER_TEMP}/mock-llm.log" 2>&1 &
+          MOCK_PID=$!
+          trap 'kill "${MOCK_PID}" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:8790/models >/dev/null 2>&1 && break
+            sleep 0.5
+          done
+          curl -sf http://127.0.0.1:8790/models >/dev/null 2>&1 || { echo "mock LLM failed to start:"; cat "${RUNNER_TEMP}/mock-llm.log"; exit 1; }
+          dsh --profile headless "hi"

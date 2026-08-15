@@ -1,0 +1,16 @@
+{
+  "id": "ses_tool002",
+  "title": "Debug segfault",
+  "directory": "E:/demo/opencode-proj",
+  "createdAt": 1786000100000,
+  "model": "deepseek-v4-flash",
+  "messages": [
+    { "id": "msg_tu1", "role": "user", "createdAt": 1786000100001, "parts": [ { "type": "text", "text": "调试段错误" } ] },
+    { "id": "msg_ta1", "role": "assistant", "createdAt": 1786000100002, "cwd": "E:/demo/opencode-proj", "modelID": "deepseek-v4-max", "parts": [
+        { "type": "reasoning", "text": "先跑一下复现命令看崩溃栈。" },
+        { "type": "tool", "tool": "bash", "callID": "call_01", "state": { "status": "completed", "input": { "command": "cargo run" }, "output": "thread 'main' panicked at src/main.rs:12" } },
+        { "type": "tool", "tool": "bash", "callID": "call_02", "state": { "status": "error", "input": { "command": "cargo test" }, "output": "error: compilation failed" } },
+        { "type": "text", "text": "是空指针，修一下。" }
+      ] }
+  ]
+}

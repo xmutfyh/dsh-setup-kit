@@ -1,0 +1,79 @@
+{
+  "sessionId": "c7d58aa0-2233-4e2e-9c44-aa1b2c3d4e5f",
+  "projectHash": "384e9530e99733805bc2c98a596ab23e67d4c29a6ef263cdc1c89b3bcd022c69",
+  "startTime": "2026-04-17T18:09:18.567Z",
+  "lastUpdated": "2026-04-17T18:12:52.535Z",
+  "directories": ["D:\\demo\\gemini-proj"],
+  "kind": "main",
+  "messages": [
+    {
+      "id": "m-user-1",
+      "timestamp": "2026-04-17T18:10:00.000Z",
+      "type": "user",
+      "content": [{ "text": "List the directory and run the tests." }]
+    },
+    {
+      "id": "m-gemini-1",
+      "timestamp": "2026-04-17T18:10:02.000Z",
+      "type": "gemini",
+      "content": "Let me check what's here.",
+      "model": "gemini-3-flash-preview",
+      "toolCalls": [
+        {
+          "id": "list_directory_1776449402227_0",
+          "name": "list_directory",
+          "args": { "path": "." },
+          "status": "success",
+          "result": [
+            {
+              "functionResponse": {
+                "id": "list_directory_1776449402227_0",
+                "name": "list_directory",
+                "response": { "output": "src\nCargo.toml" }
+              }
+            }
+          ],
+          "resultDisplay": "src\nCargo.toml"
+        }
+      ]
+    },
+    {
+      "id": "m-gemini-2",
+      "timestamp": "2026-04-17T18:10:06.000Z",
+      "type": "gemini",
+      "content": "Running the tests now.",
+      "model": "gemini-3-flash-preview",
+      "toolCalls": [
+        {
+          "id": "run_shell_command_1776449402227_1",
+          "name": "run_shell_command",
+          "args": { "command": "cargo test" },
+          "status": "error",
+          "result": [
+            {
+              "functionResponse": {
+                "id": "run_shell_command_1776449402227_1",
+                "name": "run_shell_command",
+                "response": { "output": "Compilation error: missing semicolon" }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "m-gemini-3",
+      "timestamp": "2026-04-17T18:10:09.000Z",
+      "type": "gemini",
+      "content": "Tests are failing on a missing semicolon.",
+      "model": "gemini-3-flash-preview",
+      "toolCalls": []
+    },
+    {
+      "id": "m-info-1",
+      "timestamp": "2026-04-17T18:10:10.000Z",
+      "type": "info",
+      "content": "Request cancelled."
+    }
+  ]
+}

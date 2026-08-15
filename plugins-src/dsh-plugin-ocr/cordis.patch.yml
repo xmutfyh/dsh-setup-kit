@@ -1,0 +1,5 @@
+# dsh-plugin-ocr bundle declaration: insert into the host composite's
+# dsh-plugin-ocr plugin line.
+- insert:
+    - id: dsh-plugin-ocr
+      name: dsh-plugin-ocr

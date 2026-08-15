@@ -1,0 +1,37 @@
+# settings.yaml 模板 —— 复制到 ~/.dsh/settings.yaml（首次 dsh web 生成后覆盖即可）
+# 目标机器需自行设置 OPENAI_API_KEY 环境变量（对应 nuoda.vip 中转）；或改用自己的 provider。
+# remote-web-ui 块由 dsh-start.ps1 自动管理（每次重启写入最新 publicBaseUrl），此处可不写。
+
+ui-onboarding:
+  welcomeNoticeVersion: 2026-08-13.1
+ui-theme:
+  preference: light
+permission:
+  defaultPreset: danger-full-access
+llm-pi-ai:
+  providers:
+    {
+      openai:
+        {
+          baseURL: https://api.nuoda.vip/v1,
+          models:
+            [
+              { id: gpt-5.5-pro, name: GPT-5.5 Pro, contextWindow: 1050000, maxTokens: 128000 },
+              { id: gpt-5.6-luna, name: GPT-5.6 Luna, contextWindow: 272000, maxTokens: 128000 },
+              { id: gpt-5.6-sol, name: GPT-5.6 Sol, contextWindow: 272000, maxTokens: 128000 },
+              { id: gpt-5.6-terra, name: GPT-5.6 Terra, contextWindow: 272000, maxTokens: 128000 }
+            ],
+          apiKeyEnv: OPENAI_API_KEY
+        }
+    }
+pet:
+  visible: false
+  size: 160
+  right: 98
+  bottom: 58
+  name: "鲸鱼娘"
+  enabled: false
+agent-default-model:
+  provider: deepseek-official
+  model: deepseek-v4-flash
+  reasoningEffort: high

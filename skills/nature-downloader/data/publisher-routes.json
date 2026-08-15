@@ -1,0 +1,50 @@
+{
+  "pubs.geoscienceworld.org": {
+    "host": "pubs.geoscienceworld.org",
+    "strategy": "observed",
+    "outcome": "library_no_permission",
+    "transport": null,
+    "verifiedAt": "2026-07-23T07:07:59.333Z",
+    "observations": 8
+  },
+  "sciencedirect.com": {
+    "host": "sciencedirect.com",
+    "strategy": "observed",
+    "outcome": "library_no_permission",
+    "transport": null,
+    "verifiedAt": "2026-07-23T07:14:25.070Z",
+    "observations": 25
+  },
+  "pubs.acs.org": {
+    "host": "pubs.acs.org",
+    "strategy": "generic-viewer",
+    "outcome": "publisher_verification_waiting_user",
+    "transport": null,
+    "verifiedAt": "2026-07-23T06:35:10.664Z",
+    "observations": 1
+  },
+  "onlinelibrary.wiley.com": {
+    "host": "onlinelibrary.wiley.com",
+    "strategy": "observed",
+    "outcome": "publisher_blocked_waiting_user",
+    "transport": null,
+    "verifiedAt": "2026-07-23T07:12:38.699Z",
+    "observations": 4
+  },
+  "onepetro.org": {
+    "host": "onepetro.org",
+    "strategy": "observed",
+    "outcome": "library_no_permission",
+    "transport": null,
+    "verifiedAt": "2026-07-23T07:07:31.380Z",
+    "observations": 2
+  },
+  "nature.com": {
+    "host": "nature.com",
+    "strategy": "observed",
+    "outcome": "library_no_permission",
+    "transport": "cdp-network",
+    "verifiedAt": "2026-07-23T07:13:59.366Z",
+    "observations": 2
+  }
+}

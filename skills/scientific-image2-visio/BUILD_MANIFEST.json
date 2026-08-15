@@ -1,0 +1,55 @@
+{
+  "build": "scientific-image2-visio-optimized",
+  "built_at_utc": "2026-07-22T03:41:51.669067+00:00",
+  "source_archive": "Visiomaster-main.zip",
+  "skill_name": "scientific-image2-visio",
+  "file_count": 78,
+  "python_file_count": 24,
+  "node_type_count": 61,
+  "edge_type_count": 13,
+  "scientific_components": [
+    "scientific_unet",
+    "segmented_cube_grid",
+    "multi_domain_signal_panel",
+    "noise_cloud",
+    "diffusion_timeline",
+    "soft_architecture_background"
+  ],
+  "tests": {
+    "pytest_returncode": 0,
+    "pytest_summary": "\u001b[32m\u001b[32m\u001b[1m12 passed\u001b[0m\u001b[32m in 30.71s\u001b[0m\u001b[0m",
+    "strict_pipeline_steps": [
+      {
+        "command": "/opt/pyvenv/bin/python /mnt/data/Visiomaster-scientific-image2/scripts/figure_spec_validate.py /mnt/data/Visiomaster-scientific-image2/templates/scientific/example_multidomain_diffusion.figure.json --strict",
+        "returncode": 0
+      },
+      {
+        "command": "/opt/pyvenv/bin/python /mnt/data/Visiomaster-scientific-image2/scripts/figure_spec_to_scene.py /mnt/data/Visiomaster-scientific-image2/templates/scientific/example_multidomain_diffusion.figure.json --output /tmp/tmpwgdymi13/scene.json",
+        "returncode": 0
+      },
+      {
+        "command": "/opt/pyvenv/bin/python /mnt/data/Visiomaster-scientific-image2/scripts/scene_validate.py /tmp/tmpwgdymi13/scene.json --strict",
+        "returncode": 0
+      },
+      {
+        "command": "/opt/pyvenv/bin/python /mnt/data/Visiomaster-scientific-image2/scripts/scientific_acceptance.py --spec /mnt/data/Visiomaster-scientific-image2/templates/scientific/example_multidomain_diffusion.figure.json --scene /tmp/tmpwgdymi13/scene.json --output /tmp/tmpwgdymi13/acceptance.md",
+        "returncode": 0
+      }
+    ]
+  },
+  "static_security_scan": {
+    "patterns": [
+      "network_import",
+      "eval_call",
+      "exec_call",
+      "os_system",
+      "shell_true"
+    ],
+    "findings": [],
+    "note": "Scan is a conservative keyword check, not a formal security audit."
+  },
+  "windows_visio_integration": {
+    "status": "not run in this Linux build environment",
+    "command": "python scripts/windows_integration_test.py --output-dir <dir> --visible"
+  }
+}

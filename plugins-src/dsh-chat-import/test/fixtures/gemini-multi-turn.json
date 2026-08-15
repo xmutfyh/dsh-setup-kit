@@ -1,0 +1,34 @@
+{
+  "sessionId": "d8e69bb1-3344-4f3f-ad55-bb2c3d4e5f60",
+  "projectHash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "startTime": "2026-04-17T18:09:18.567Z",
+  "directories": ["D:\\demo\\gemini-proj"],
+  "messages": [
+    {
+      "id": "u1",
+      "timestamp": "2026-04-17T18:10:00.000Z",
+      "type": "user",
+      "content": [{ "text": "First question." }]
+    },
+    {
+      "id": "g1",
+      "timestamp": "2026-04-17T18:10:01.000Z",
+      "type": "gemini",
+      "content": "First answer.",
+      "model": "gemini-2.5-pro"
+    },
+    {
+      "id": "u2",
+      "timestamp": "2026-04-17T18:10:02.000Z",
+      "type": "user",
+      "content": [{ "text": "Second question." }]
+    },
+    {
+      "id": "g2",
+      "timestamp": "2026-04-17T18:10:03.000Z",
+      "type": "gemini",
+      "content": "Second answer.",
+      "model": "gemini-2.5-pro"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{"role":"user","message":{"content":[{"type":"text","text":"第一轮问题"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"第一轮回答。"}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"第二轮问题"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"第二轮回答。"}]}}
