@@ -1,6 +1,6 @@
 # MANIFEST — dsh-setup-kit 完美复刻包内容清单
 
-> 本包是源机器（2026-08-15）DSH 环境的完整快照。目标机器用 Codex 安装请照
+> 本包是源机器（2026-08-16）DSH 环境的完整快照。目标机器用 Codex 安装请照
 > [SETUP-CODEX.md](SETUP-CODEX.md) 逐步执行。
 
 ## 插件（plugins-src/，8 个，全部已带补丁，link: 安装）
@@ -14,7 +14,7 @@
 | dsh-file-mentions | - | 回复路径可点击 | - |
 | dsh-plugin-anydoc | - | 任意文件→Markdown | - |
 | dsh-plugin-ocr | 0.1.0 | 本地 OCR（RapidOCR，需 pip 装 rapidocr_onnxruntime） | - |
-| dsh-plugin-writing-guard | 0.5.0 | AI 写作痕迹守卫 | ✅ Config 兼容 cordis 4（`export const Config`→`const DEFAULT_CONFIG`） |
+| dsh-plugin-writing-guard | 0.6.1 | AI 写作痕迹守卫 + Scholarship Lock/作者风格档案 | ✅ Config 兼容 cordis 4（`export const Config`→`const DEFAULT_CONFIG`） |
 
 npm 插件（第 3 步安装，不在包内）：`@linxin666/dsh-web-ui-all@0.1.12`（任务看板/Git图谱/右侧面板/实时token/皮肤/SSH/宠物/手机远控）
 

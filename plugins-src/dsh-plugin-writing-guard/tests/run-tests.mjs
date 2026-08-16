@@ -4,7 +4,8 @@
  * 目标：每条核心规则至少有一个 true-positive 和一个 true-negative 断言。
  * 运行：node tests/run-tests.mjs
  */
-import { auditText, detectDocumentProfile, filterReport, hitFingerprint, diffAudit, serializeFingerprints, deserializeFingerprints } from '../lib/rules.js'
+import { auditText, detectDocumentProfile, filterReport, hitFingerprint, diffAudit, serializeFingerprints, deserializeFingerprints, diffScholarship, computeStyleProfile, splitSentences, cosineSimilarity, tokenizeForSimilarity } from '../lib/rules.js'
+import { isPaperFile } from '../lib/index.js'
 
 let pass = 0
 let fail = 0
@@ -357,7 +358,7 @@ console.log('=== 19. v0.4 segment pipeline：规则只扫声明的 segment 类�
   check('colon-title ignores prose colons', r2.stats.colonTitleCount === 0, `colonTitleCount=${r2.stats.colonTitleCount}`)
 }
 
-console.log('=== 20. v0.4 section detection + limitation-dispersal 跨章节 ===')
+console.log('=== 20. v0.4 section detection + limitations-across-sections 跨章节 ===')
 {
   // 局限分散在 ≥3 章节 → 报
   const doc = [
@@ -371,7 +372,7 @@ console.log('=== 20. v0.4 section detection + limitation-dispersal 跨章节 ===
     'The study has several limitations as discussed.',
   ].join('\n')
   const r = auditText(doc, { profile: 'manuscript' })
-  check('limitation-dispersal TP (>=3 sections)', hasRule(r, 'limitation-dispersal'), JSON.stringify(r.hits.map((h) => h.ruleId)))
+  check('limitations-across-sections TP (>=3 sections)', hasRule(r, 'limitations-across-sections'), JSON.stringify(r.hits.map((h) => h.ruleId)))
 
   // 局限只在 Discussion → 不报（ICMJE 正当）
   const ok = auditText(
@@ -383,7 +384,7 @@ console.log('=== 20. v0.4 section detection + limitation-dispersal 跨章节 ===
     ].join('\n'),
     { profile: 'manuscript' },
   )
-  check('limitation-dispersal TN (discussion only, ICMJE-appropriate)', !hasRule(ok, 'limitation-dispersal'), JSON.stringify(ok.hits.map((h) => h.ruleId)))
+  check('limitations-across-sections TN (discussion only, ICMJE-appropriate)', !hasRule(ok, 'limitations-across-sections'), JSON.stringify(ok.hits.map((h) => h.ruleId)))
 }
 
 console.log('=== 21. v0.4 segment 类型：code/math/table 不进入 prose ===')
@@ -417,9 +418,10 @@ console.log('=== 22. v0.5 incremental lint：指纹 + 增量 diff ===')
   check('fingerprint stable across paragraph shifts', fa && fb && hitFingerprint(fa) === hitFingerprint(fb), `a=${fa && hitFingerprint(fa)} b=${fb && hitFingerprint(fb)}`)
 
   // diff：修复一项 → added 1 / resolved 1 / remaining 1
-  const v1 = auditText('The revised model uses ΔP. This study has limitations in generalization.', { profile: 'manuscript' })
+  // （文本避免希腊字母 Δ——v0.6 format-unicode-math 会额外命中，干扰计数断言）
+  const v1 = auditText('The revised model uses the new objective. This study has limitations in generalization.', { profile: 'manuscript' })
   const prev = new Set(v1.hits.map((h) => hitFingerprint(h)))
-  const v2 = auditText('The model uses ΔP. We do not claim superiority. This study has limitations in generalization.', { profile: 'manuscript' })
+  const v2 = auditText('The model uses the new objective. We do not claim superiority. This study has limitations in generalization.', { profile: 'manuscript' })
   const diff = diffAudit(prev, v2.hits)
   check('diff: added detected', diff.added.some((h) => h.ruleId === 'we-do-not-claim'), JSON.stringify(diff.added.map((h) => h.ruleId)))
   check('diff: resolved counted', diff.resolved.length === 1, `resolved=${diff.resolved.length}`)
@@ -434,6 +436,351 @@ console.log('=== 22. v0.5 incremental lint：指纹 + 增量 diff ===')
   const de = deserializeFingerprints(ser)
   check('serialize/deserialize roundtrip', de.size === prev.size && [...de].every((x) => prev.has(x)))
   check('deserialize rejects non-array', deserializeFingerprints('nope').size === 0)
+}
+
+console.log('=== 23. v0.5.1 P0：单行 $$...$$ 不吞正文 ===')
+{
+  // GPT：$$E = mc^2$$ 单行闭合后，后续正文必须仍被扫描
+  const doc = [
+    '$$E = mc^2$$',
+    '',
+    'The revised manuscript now includes additional experiments.',
+  ].join('\n')
+  const r = auditText(doc, { profile: 'manuscript' })
+  check('single-line $$ closed, following prose still scanned', hasRule(r, 'revised-family'), JSON.stringify(r.hits.map((h) => h.ruleId)))
+}
+
+console.log('=== 24. v0.5.1 P0：density fingerprint 稳定（不随分母变化）===')
+{
+  // density hit 指纹 = aggregate::ruleId：加一段正常文字改变分母后，指纹不变
+  const v1 = auditText(
+    'We delve into the tapestry. This is a testament. The realm is broad. The work is a cornerstone of the paradigm. The approach leverages the method. The model harnesses the data. The result showcases the value. The study navigates the field.',
+    { profile: 'manuscript' },
+  )
+  const fp1 = new Set(v1.hits.map((h) => hitFingerprint(h)))
+  const v2 = auditText(
+    'We delve into the tapestry. This is a testament. The realm is broad. The work is a cornerstone of the paradigm. The approach leverages the method. The model harnesses the data. The result showcases the value. The study navigates the field.' +
+      ' Additional normal methods text that increases the denominator without adding new issues. The experiment was repeated three times with consistent results. All measurements were recorded and analyzed.',
+    { profile: 'manuscript' },
+  )
+  const fp2 = new Set(v2.hits.map((h) => hitFingerprint(h)))
+  // 分母变化不产生 resolved+added（指纹应完全一致）
+  check('density fingerprint stable across denominator change', fp1.size === fp2.size && [...fp1].every((x) => fp2.has(x)),
+    `fp1=${[...fp1].join('|')} fp2=${[...fp2].join('|')}`)
+}
+
+console.log('=== 25. v0.5.1 heading hierarchy：Discussion 子标题不拆成多个 section ===')
+{
+  const doc = [
+    '# Discussion',
+    '',
+    '## Sample size',
+    'This limitation affects precision.',
+    '',
+    '## External validity',
+    'Another limitation is scope.',
+    '',
+    '## Measurement',
+    'A limitation in measurement exists.',
+  ].join('\n')
+  const r = auditText(doc, { profile: 'manuscript' })
+  // 全部属于 Discussion 一个顶层章节 → 不报（GPT：这正是 README 说不该报警的合理写法）
+  check('subheadings stay under top-level section (no false positive)', !hasRule(r, 'limitations-across-sections'), JSON.stringify(r.hits.map((h) => h.ruleId)))
+}
+
+console.log('=== 26. v0.5.1 LaTeX 引用命令整体删除（\cite 的 key 不进 prose）===')
+{
+  const doc = [
+    'The method \\cite{smith-revised-2025} and \\ref{revised-model} are described. \\textbf{important result} is shown.',
+  ].join('\n')
+  const r = auditText(doc, { profile: 'manuscript' })
+  // \cite{smith-revised-2025} 里的 "revised" 是 citation key，不应命中；\textbf 的内容保留
+  check('latex cite/ref keys stripped (no revised hit)', !hasRule(r, 'revised-family'), JSON.stringify(r.hits.map((h) => h.ruleId)))
+  check('latex textbf content kept (important result)', /important result/.test(r.stats.englishWords > 0 ? 'x' : '') || r.stats.englishWords >= 8, `words=${r.stats.englishWords}`)
+}
+
+console.log('=== 27. v0.5.2 isPaperFile 词边界（newspaper/synthesis/coverage/paperwork 不再误判）===')
+{
+  const cwd = 'C:/workspace/proj'
+  for (const p of ['C:/workspace/proj/newspaper-notes.md', 'C:/workspace/proj/notes/synthesis-draft.md', 'C:/workspace/proj/doc/coverage-report.md', 'C:/workspace/proj/readme/paperwork.md']) {
+    check(`isPaperFile TN: ${p.split('/').pop()}`, !isPaperFile(p, cwd), p)
+  }
+  for (const p of ['C:/workspace/proj/manuscript/main.md', 'C:/workspace/proj/01_manuscript/ms.tex', 'C:/workspace/proj/notes/revision_notes.md', 'C:/workspace/proj/response_letter.md', 'C:/workspace/proj/修订稿.md', 'C:/workspace/proj/reviewer2_comments.md']) {
+    check(`isPaperFile TP: ${p.split('/').pop()}`, isPaperFile(p, cwd), p)
+  }
+  // 知识库目录前缀匹配（cwd 相对路径）
+  check('isPaperFile TP: root-dir prefix (01_manuscript/)', isPaperFile('01_manuscript/draft.md', cwd))
+  check('isPaperFile TN: root-dir not matching', !isPaperFile('10_notes/draft.md', cwd))
+}
+
+console.log('=== 28. v0.5.2 profile 检测扩展（reviewer2 / my_notes / revision 对齐）===')
+{
+  check('reviewer2_comments → review', detectDocumentProfile('reviewer2_comments.md') === 'review')
+  check('reviewer 2 comments → review', detectDocumentProfile('Reviewer 2 comments.md') === 'review')
+  check('my_notes → notes', detectDocumentProfile('my_notes.md') === 'notes')
+  check('draft_notes → notes', detectDocumentProfile('draft_notes.md') === 'notes')
+  check('revision_notes → manuscript（与 isPaperFile 对齐，不再 unknown）', detectDocumentProfile('revision_notes.md') === 'manuscript')
+  check('revision_response → rebuttal', detectDocumentProfile('revision_response.md') === 'rebuttal')
+  check('Supplementary_revision_notes → manuscript', detectDocumentProfile('Supplementary_revision_notes.md') === 'manuscript')
+  // 原有判定不回退
+  check('regression: response_to_reviewers → rebuttal', detectDocumentProfile('response_to_reviewers.md') === 'rebuttal')
+  check('regression: systematic_review → manuscript', detectDocumentProfile('systematic_review.md') === 'manuscript')
+  check('regression: notes.txt → notes', detectDocumentProfile('notes.txt') === 'notes')
+}
+
+console.log('=== 29. v0.5.2 we-have-changed 组合时态 ===')
+{
+  const r = auditText('We have now updated the methods section entirely. We now have also corrected the abstract.', { profile: 'manuscript' })
+  check('"we have now updated" TP', hasRule(r, 'we-have-changed'), JSON.stringify(r.hits.map((h) => h.ruleId)))
+  check('two hits in one paragraph both reported', r.hits.filter((h) => h.ruleId === 'we-have-changed').length === 2, JSON.stringify(r.hits.map((h) => h.snippet)))
+}
+
+console.log('=== 30. v0.5.2 rule-of-three 大小写不敏感 ===')
+{
+  const r = auditText('The method is Clear, Concise, and Compelling in its presentation. The style is precise, direct, and vivid overall.', { profile: 'manuscript' })
+  // 2 处 < minCount 4 → 不报（阈值规则），但 stats 应计数；用 4 处验证 TP
+  const dense = auditText(
+    'The method is Clear, Concise, and Compelling in its presentation. The style is precise, direct, and vivid overall. ' +
+    'The results are robust, reproducible, and generalizable. The writing is terse, exact, and unadorned.',
+    { profile: 'manuscript' },
+  )
+  check('rule-of-three TP with leading capitals (4+ hits)', hasRule(dense, 'rule-of-three'), JSON.stringify(dense.hits.map((h) => h.snippet)))
+  check('rule-of-three counts capitalized lists in stats', r.stats.ruleOfThreeCount >= 2, `count=${r.stats.ruleOfThreeCount}`)
+}
+
+console.log('=== 31. v0.5.2 指纹稳定：同段其他文字编辑不产生假 resolved+added ===')
+{
+  const v1 = auditText('The revised model uses the ΔP regression objective only, and the results are presented in the next section.', { profile: 'manuscript' })
+  const v2 = auditText('The revised model uses the ΔP regression objective only, and the results are NOW presented in the following section of the paper.', { profile: 'manuscript' })
+  const fp1 = v1.hits.filter((h) => h.ruleId === 'revised-family').map(hitFingerprint)
+  const fp2 = v2.hits.filter((h) => h.ruleId === 'revised-family').map(hitFingerprint)
+  check('fingerprint unchanged by same-paragraph edits elsewhere', fp1.length === 1 && fp2.length === 1 && fp1[0] === fp2[0], `a=${fp1[0]} b=${fp2[0]}`)
+  // v0.6：用全部指纹对比（含 format-unicode 等新规则），同段编辑不应产生任何假 diff
+  const diff = diffAudit(new Set(v1.hits.map((h) => hitFingerprint(h))), v2.hits)
+  check('diff: no false resolved+added on same-paragraph edit', diff.added.length === 0 && diff.resolved.length === 0, `added=${diff.added.length} resolved=${diff.resolved.length}`)
+
+  // 真正修复后：指纹消失 → resolved（Δ 仍在，format-unicode 指纹不变，不算假解决）
+  const fixed = auditText('The model uses the ΔP regression objective only, and the results are presented in the next section.', { profile: 'manuscript' })
+  const diff2 = diffAudit(new Set(v1.hits.map((h) => hitFingerprint(h))), fixed.hits)
+  check('diff: real fix still resolves', diff2.resolved.length === 1, `resolved=${diff2.resolved.length}`)
+}
+
+console.log('=== 32. v0.5.2 同段多处命中全部报告（maxHits 全局上限内）===')
+{
+  const r = auditText('The revised model is good. The revised method is better. The revised approach is best.', { profile: 'manuscript' })
+  const n = r.hits.filter((h) => h.ruleId === 'revised-family').length
+  check('3 occurrences in one paragraph → 3 hits', n === 3, `n=${n}`)
+  // 指纹各不相同? 相同命中词 → 共享指纹（保守去重），但 hit 都保留
+  const fps = new Set(r.hits.filter((h) => h.ruleId === 'revised-family').map(hitFingerprint))
+  check('shared fingerprint for identical match text (by design)', fps.size === 1, `fps=${[...fps]}`)
+}
+
+console.log('=== 33. v0.5.2 section 基准层级：# 标题 + ## 章节 也能跨章节检测 ===')
+{
+  // 常见 Markdown 结构：# 论文标题 + ## Introduction/Methods/Results（局限分散 3 章）
+  const doc = [
+    '# A Study of X',
+    'Abstract prose without limitation words.',
+    '## Introduction',
+    'The limitations of prior work are known.',
+    '## Methods',
+    'This method has limitations in generalization.',
+    '## Results',
+    'Results show limited applicability.',
+  ].join('\n')
+  const r = auditText(doc, { profile: 'manuscript' })
+  check('limitations-across-sections TP with # title + ## sections', hasRule(r, 'limitations-across-sections'), JSON.stringify(r.hits.map((h) => h.ruleId)))
+
+  // 反向：## 为章节时，# 下的 H1 不应拆散 section（回归测试 25 的语义保持）
+  const ok = auditText(
+    ['# Paper', '## Discussion', '### Sample size', 'This limitation affects precision.', '### External validity', 'Another limitation is scope.'].join('\n'),
+    { profile: 'manuscript' },
+  )
+  check('H3 under H2 under H1 stays one section (no false positive)', !hasRule(ok, 'limitations-across-sections'), JSON.stringify(ok.hits.map((h) => h.ruleId)))
+}
+
+console.log('=== 34. v0.5.2 References 后的 Appendix 不再被吞 ===')
+{
+  const doc = [
+    'The model is evaluated in this study.',
+    '',
+    '# References',
+    '1. Smith J. A revised approach to drying. 2020.',
+    '',
+    '## Appendix',
+    'The revised model is described in detail here.',
+  ].join('\n')
+  const r = auditText(doc, { profile: 'manuscript' })
+  check('appendix prose after References still scanned (revised hit)', hasRule(r, 'revised-family'), JSON.stringify(r.hits.map((h) => h.snippet)))
+  check('references entry itself still excluded', r.hits.filter((h) => h.snippet.includes('A revised approach to drying')).length === 0, JSON.stringify(r.hits.map((h) => h.snippet)))
+}
+
+console.log('=== 35. v0.5.2 project-residue 指纹稳定（术语替换才 resolved）===')
+{
+  const v1 = auditText('The source_map was updated in the pipeline.', { profile: 'manuscript', projectResidueTerms: ['source_map'] })
+  const fp1 = v1.hits.filter((h) => h.ruleId === 'project-residue').map(hitFingerprint)
+  const v2 = auditText('The source_map was updated in the revised pipeline.', { profile: 'manuscript', projectResidueTerms: ['source_map'] })
+  const fp2 = v2.hits.filter((h) => h.ruleId === 'project-residue').map(hitFingerprint)
+  check('project-residue fingerprint stable across unrelated edits', fp1.length === 1 && fp2.length === 1 && fp1[0] === fp2[0], `a=${fp1[0]} b=${fp2[0]}`)
+  const v3 = auditText('The mapping table was updated in the pipeline.', { profile: 'manuscript', projectResidueTerms: ['source_map'] })
+  check('project-residue resolved when term removed', diffAudit(new Set(fp1), v3.hits).resolved.length === 1)
+}
+
+console.log('=== 36. v0.6 Scholarship Lock：科研实体前后对比 ===')
+{
+  // 数字被改：87.3% → 89.1%
+  const before = 'Our method reaches an accuracy of 87.3% on the benchmark. See \\cite{smith2024} and Figure 3 for details.'
+  const after = 'Our method reaches an accuracy of 89.1% on the benchmark. See \\cite{smith2024} and Figure 3 for details.'
+  const r = auditText(after, { profile: 'manuscript', original: before })
+  const lock = r.hits.filter((h) => h.ruleId === 'scholarship-lock')
+  check('scholarship-lock TP (percent changed)', lock.some((h) => h.snippet.includes('87.3%') && h.snippet.includes('89.1%')), JSON.stringify(lock.map((h) => h.snippet)))
+  check('scholarship-lock severity high', lock.length > 0 && lock.every((h) => h.severity === 'high'))
+
+  // 引用消失：\cite 被删
+  const after2 = 'Our method reaches an accuracy of 87.3% on the benchmark. See Figure 3 for details.'
+  const r2 = auditText(after2, { profile: 'manuscript', original: before })
+  check('scholarship-lock TP (cite removed)', r2.hits.some((h) => h.ruleId === 'scholarship-lock' && h.label.includes('消失') && h.snippet.includes('smith2024')), JSON.stringify(r2.hits.filter((h) => h.ruleId === 'scholarship-lock').map((h) => h.snippet)))
+
+  // 无变化 → 不报
+  const r3 = auditText(before, { profile: 'manuscript', original: before })
+  check('scholarship-lock TN (no change)', !r3.hits.some((h) => h.ruleId === 'scholarship-lock'))
+
+  // 纯语言润色（不动数字/引用）→ 不报
+  const polished = 'Our method attains an accuracy of 87.3% on the benchmark. See \\cite{smith2024} and Figure 3 for details.'
+  const r4 = auditText(polished, { profile: 'manuscript', original: before })
+  check('scholarship-lock TN (pure wording change)', !r4.hits.some((h) => h.ruleId === 'scholarship-lock'))
+}
+
+console.log('=== 37. v0.6 防御饱和：hedge 密度 + 限定词堆叠 ===')
+{
+  // 密度 TP：每句都挂 caveat
+  const dense = auditText(
+    'This result may suggest a trend. The effect could possibly be small. These findings might indicate a mechanism. We cannot rule out alternative explanations. The data may potentially reflect noise. The pattern could perhaps be spurious.',
+    { profile: 'manuscript' },
+  )
+  check('hedge-density-en TP (5+ hedges, >=300/千句)', hasRule(dense, 'hedge-density-en'), JSON.stringify(dense.hits.map((h) => h.ruleId)))
+
+  // 密度 TN：少量正常 hedge
+  const sparse = auditText('The results may suggest an association, but further work is needed. The mechanism remains unclear.', { profile: 'manuscript' })
+  check('hedge-density-en TN (1 hedge)', !hasRule(sparse, 'hedge-density-en'))
+
+  // hedge-stacking TP
+  const stack = auditText('These results may potentially suggest that the model generalizes. This could possibly indicate overfitting.', { profile: 'manuscript' })
+  check('hedge-stacking TP (may potentially suggest)', hasRule(stack, 'hedge-stacking'), JSON.stringify(stack.hits.map((h) => h.ruleId)))
+
+  // hedge-stacking TN：正常 "may well be"
+  const ok = auditText('This may well be the reason for the observed pattern.', { profile: 'manuscript' })
+  check('hedge-stacking TN (may well be)', !hasRule(ok, 'hedge-stacking'), JSON.stringify(ok.hits.map((h) => h.ruleId)))
+}
+
+console.log('=== 38. v0.6 超长句 + 从句堆叠（英文）===')
+{
+  const long = auditText(
+    'The proposed framework integrates a transformer encoder that processes long sequences, which are augmented with positional embeddings that encode relative distances, while the decoder attends to the memory states that are produced by the encoder, because attention alone cannot capture all dependencies that span the entire input sequence, thereby requiring the additional mechanism that we introduce in this section that addresses the limitation. ' +
+    'The second contribution concerns the training objective, which combines a masked language modeling loss with a contrastive component that aligns representations across domains, and we demonstrate that this hybrid objective improves transfer performance on all downstream tasks that we evaluate, because the alignment term provides a regularizing signal that stabilizes training.',
+    { profile: 'manuscript' },
+  )
+  check('overlong-sentence-en TP (>35 words + >=3 clause markers, 2 sentences)', hasRule(long, 'overlong-sentence-en'), JSON.stringify(long.hits.map((h) => h.snippet)))
+
+  const normal = auditText('We evaluate the model on three benchmarks and compare it against recent baselines. The results are summarized in Table 2 and discussed in the next section.', { profile: 'manuscript' })
+  check('overlong-sentence-en TN (normal sentences)', !hasRule(normal, 'overlong-sentence-en'), JSON.stringify(normal.hits.map((h) => h.ruleId)))
+}
+
+console.log('=== 39. v0.6 超长句（中文）===')
+{
+  const longZh = auditText(
+    '该方法在多个数据集上进行了充分的实验验证，其中每个数据集都包含不同的样本规模与分布特征，同时我们还进一步对比了多种基线方法，从而全面评估了模型的泛化能力，因此我们认为该方案具有良好的实际应用价值，并且可以推广到更广泛的场景中，这意味着该方法具备较强的鲁棒性。' +
+    '另一方面我们考察了训练效率，其中批大小与学习率都经过细致的调参，同时我们进一步分析了收敛曲线，从而确认了优化过程的稳定性，因此可以认为训练方案是可靠的，并且适合大规模部署，这意味着工程风险较低。',
+    { profile: 'manuscript' },
+  )
+  check('overlong-sentence-zh TP (2 long sentences)', hasRule(longZh, 'overlong-sentence-zh'), JSON.stringify(longZh.hits.map((h) => h.snippet)))
+}
+
+console.log('=== 40. v0.6 重复绕圈（restatement loop）===')
+{
+  const loop = auditText(
+    'The method performs well on this task. Our approach performs well on this task. The proposed model performs well on this task. We report runtime overhead.',
+    { profile: 'manuscript' },
+  )
+  check('restatement-loop TP (3 high-overlap sentences, no new evidence)', hasRule(loop, 'restatement-loop'), JSON.stringify(loop.hits.map((h) => h.snippet.slice(0, 80))))
+
+  const distinct = auditText(
+    'The method outperforms the baseline by 12%. The runtime is 3.2 seconds. The implementation is open source.',
+    { profile: 'manuscript' },
+  )
+  check('restatement-loop TN (each sentence adds evidence)', !hasRule(distinct, 'restatement-loop'), JSON.stringify(distinct.hits.map((h) => h.snippet.slice(0, 60))))
+}
+
+console.log('=== 41. v0.6 Author Style Profile：句长漂移 ===')
+{
+  // 作者历史：中长句风格（median ~10-12）
+  const profile = computeStyleProfile(
+    'This result supports the main hypothesis of our study. The data were collected across three independent laboratories. We compared the proposed method with two standard baselines. The analysis controls for the demographic variables of interest. Our findings remain consistent under all robustness checks. The limitations section discusses potential sources of bias. We expect this approach to generalize to related tasks. The supplementary material contains all implementation details.',
+  )
+  // 当前稿件：全部超长句（median 显著偏离）
+  const draft = auditText(
+    'The proposed framework integrates a transformer encoder that processes long sequences, which are augmented with positional embeddings that encode relative distances, while the decoder attends to the memory states that are produced by the encoder, because attention alone cannot capture all dependencies that span the entire input sequence, thereby requiring the additional mechanism that we introduce in this section that addresses the limitation. ' +
+    'The second contribution concerns the training objective, which combines a masked language modeling loss with a contrastive component that aligns representations across domains, and we demonstrate that this hybrid objective improves transfer performance on all downstream tasks that we evaluate, because the alignment term provides a regularizing signal that stabilizes training. ' +
+    'Finally we present an extensive ablation study that isolates each design choice, showing that the encoder depth and the positional scheme contribute most of the observed gains, while the remaining components add only marginal value, and we argue that this decomposition clarifies which parts of the architecture are actually necessary. ' +
+    'The code is available online. The data are public.',
+    { profile: 'manuscript', styleProfile: profile },
+  )
+  check('style-profile-drift TP (long sentences vs author profile)', hasRule(draft, 'style-profile-drift'), JSON.stringify(draft.hits.map((h) => h.snippet.slice(0, 90))))
+  check('profile median computed', profile.sentenceLengthMedian > 0 && profile.sentenceLengthStd >= 0)
+
+  // 与自身风格一致 → 不报
+  const same = auditText('This result supports the main hypothesis of our study. The data were collected across three independent laboratories. We compared the proposed method with two standard baselines.', { profile: 'manuscript', styleProfile: profile })
+  check('style-profile-drift TN (same style)', !hasRule(same, 'style-profile-drift'), JSON.stringify(same.hits.map((h) => h.ruleId)))
+}
+
+console.log('=== 42. v0.6 Unicode 数学符号（LaTeX 格式完整性）===')
+{
+  const r = auditText('The coefficient α₁ = 0.85 with β₂ = 0.12 was estimated. We then compute x₁ + x₂.', { profile: 'manuscript' })
+  check('format-unicode-math TP (subscripts + greek)', hasRule(r, 'format-unicode-math'), JSON.stringify(r.hits.map((h) => h.snippet)))
+  const ok = auditText('We use standard text without special symbols in this paragraph.', { profile: 'manuscript' })
+  check('format-unicode-math TN', !hasRule(ok, 'format-unicode-math'))
+}
+
+console.log('=== 43. v0.6 强主张缺证据锚点 ===')
+{
+  const r = auditText('Our experiments prove that the framework is superior in all settings.', { profile: 'manuscript' })
+  check('claim-evidence-proximity TP (strong claim, no anchor)', hasRule(r, 'claim-evidence-proximity'), JSON.stringify(r.hits.map((h) => h.snippet)))
+
+  const anchored = auditText('Our experiments prove that the framework is superior in all settings (p < 0.001, Table 3).', { profile: 'manuscript' })
+  check('claim-evidence-proximity TN (p-value nearby)', !hasRule(anchored, 'claim-evidence-proximity'), JSON.stringify(anchored.hits.map((h) => h.ruleId)))
+}
+
+console.log('=== 44. v0.6 连续句首连接词 ===')
+{
+  const r = auditText('Moreover, the model converges faster. Furthermore, it needs less data. Additionally, it is more robust. In conclusion, we recommend it.', { profile: 'manuscript' })
+  check('connective-overuse TP (3 consecutive sentence-initial connectives)', hasRule(r, 'connective-overuse'), JSON.stringify(r.hits.map((h) => h.ruleId)))
+  const ok = auditText('The model converges faster. Furthermore, the loss decreases. We also observe better robustness.', { profile: 'manuscript' })
+  check('connective-overuse TN (not consecutive)', !hasRule(ok, 'connective-overuse'), JSON.stringify(ok.hits.map((h) => h.ruleId)))
+}
+
+console.log('=== 45. v0.6 工具函数：句子切分 / 相似度 / profile ===')
+{
+  const sents = splitSentences('First sentence here. Second one follows! Third ends with a question?')
+  check('splitSentences basic', sents.length === 3, JSON.stringify(sents))
+  const zh = splitSentences('这是第一句。这是第二句！这是第三句？')
+  check('splitSentences zh', zh.length === 3, JSON.stringify(zh))
+
+  const sim = cosineSimilarity(tokenizeForSimilarity('The model improves the accuracy'), tokenizeForSimilarity('The model improves the accuracy'))
+  check('cosine identical ~= 1', sim > 0.999, `sim=${sim}`)
+  const sim2 = cosineSimilarity(tokenizeForSimilarity('The model improves the accuracy'), tokenizeForSimilarity('The results are unrelated to temperature'))
+  check('cosine unrelated < 0.72', sim2 < 0.72, `sim=${sim2}`)
+
+  const prof = computeStyleProfile('Alpha sentence. Beta sentence. Gamma sentence. Delta sentence. Epsilon sentence.')
+  check('computeStyleProfile median=2', prof.sentenceLengthMedian === 2, `median=${prof.sentenceLengthMedian}`)
+
+  const d = diffScholarship('accuracy 87.3% and p < 0.05 and \\cite{a} and Table 1', 'accuracy 89.1% and p < 0.05 and \\cite{a} and Table 1')
+  check('diffScholarship pairs percent change', d.changed.some((c) => c.type === 'percent' && c.before === '87.3%' && c.after === '89.1%'), JSON.stringify(d.changed))
+
+  const dup = diffScholarship('lengths 5 mm and 5 mm', 'lengths 5 mm and 6 mm')
+  check('diffScholarship pairs duplicate-number change', dup.changed.some((c) => c.type === 'number' && c.before === '5 mm' && c.after === '6 mm'), JSON.stringify(dup.changed))
+
+  const dupRemoved = diffScholarship('\\cite{a} and \\cite{a}', '\\cite{a}')
+  check('diffScholarship reports duplicate citation removal', dupRemoved.removed.some((r) => r.type === 'cite' && r.value === '\\cite{a}'), JSON.stringify(dupRemoved.removed))
 }
 
 console.log('')

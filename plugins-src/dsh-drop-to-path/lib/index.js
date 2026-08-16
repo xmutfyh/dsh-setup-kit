@@ -14,10 +14,15 @@
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { basename, isAbsolute, join } from 'node:path'
 import { homedir } from 'node:os'
+import { execFile } from 'node:child_process'
 
 export const IMPORT_ROUTE = '/_dsh/drop-to-path/import'
+export const RESOLVE_DIR_ROUTE = '/_dsh/drop-to-path/resolve-dir'
+
+const GBK = new TextDecoder('gbk')
 
 const MAX_BODY_BYTES = 140 * 1024 * 1024 // JSON body cap (~100MB file in base64)
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif'])
@@ -78,10 +83,62 @@ function safeName(raw) {
   return base.length === 0 ? 'file' : base
 }
 
+// ---- folder path resolution via Everything (es.exe) ----
+
+/** Candidate es.exe locations; the first one that exists wins. */
+function findEs() {
+  const candidates = [
+    process.env.DSH_EVERYTHING_ES,
+    join(homedir(), 'Downloads', 'Everything-Portable', 'es.exe'),
+    'C:\\Program Files\\Everything\\es.exe',
+    'C:\\Program Files (x86)\\Everything\\es.exe',
+    'es.exe', // PATH fallback; execFile resolves it
+  ]
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.length > 0 && existsSync(candidate)) return candidate
+  }
+  return 'es.exe'
+}
+
+/**
+ * Query Everything for directories whose name matches `name`.
+ * es.exe prints one absolute path per line in the system ANSI codepage
+ * (GBK on Chinese Windows), so decode with TextDecoder('gbk').
+ */
+function esFindDirectories(name) {
+  return new Promise((resolve, reject) => {
+    // `\Name` anchors the match to the last path segment (full folder name
+    // match instead of substring). Quote names with spaces so Everything
+    // treats them as one phrase.
+    const query = /[ "'()]/.test(name) ? `"\\${name}"` : `\\${name}`
+    execFile(
+      findEs(),
+      ['-ad', '-n', '20', query],
+      { windowsHide: true, timeout: 10_000 },
+      (error, stdout, stderr) => {
+        if (error) {
+          // es.exe not found / Everything not running / exit code 1 (no match)
+          if (error.code === 1 && !stderr) return resolve([])
+          reject(new Error(`es.exe query failed: ${error.message}`))
+          return
+        }
+        const paths = GBK.decode(stdout)
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+        resolve(paths)
+      },
+    )
+  })
+}
+
 export async function apply(ctx) {
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => {
-      const dispose = webCtx.webServer.register({
+      const disposers = []
+      const disposeAll = () => { for (const fn of disposers) fn() }
+
+      disposers.push(webCtx.webServer.register({
         kind: 'exact',
         path: IMPORT_ROUTE,
         handler: async (req, res) => {
@@ -137,8 +194,48 @@ export async function apply(ctx) {
             respond({ ok: false, error: { code: 'import-failed', message: error instanceof Error ? error.message : String(error) } }, 500)
           }
         },
-      })
-      return dispose
-    }, 'drop-to-path: import route')
+      }), 'drop-to-path: import route')
+
+      disposers.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: RESOLVE_DIR_ROUTE,
+        handler: async (req, res) => {
+          const respond = (value, status = 200) => {
+            res.writeHead(status, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(value))
+          }
+          try {
+            if (req.method !== 'POST') {
+              respond({ ok: false, error: { code: 'method-not-allowed', message: 'Use POST' } }, 405)
+              return
+            }
+            let body
+            try {
+              body = JSON.parse(await readBody(req, 64 * 1024))
+            } catch (error) {
+              respond({ ok: false, error: { code: 'invalid-request', message: error instanceof Error ? error.message : String(error) } }, 400)
+              return
+            }
+            const name = typeof body?.name === 'string' ? body.name.trim() : ''
+            if (name.length === 0 || name.length > 120) {
+              respond({ ok: false, error: { code: 'invalid-request', message: 'Missing or invalid folder name' } }, 400)
+              return
+            }
+            // Never let a folder name escape into a shell: execFile passes
+            // argv verbatim (no shell), and the query only anchors a name.
+            if (/[\\/:*?"<>|\x00-\x1f]/.test(name)) {
+              respond({ ok: false, error: { code: 'invalid-request', message: 'Folder name contains illegal characters' } }, 400)
+              return
+            }
+            const candidates = await esFindDirectories(name)
+            respond({ ok: true, value: { candidates } })
+          } catch (error) {
+            respond({ ok: false, error: { code: 'resolve-failed', message: error instanceof Error ? error.message : String(error) } }, 500)
+          }
+        },
+      }), 'drop-to-path: resolve-dir route')
+
+      return disposeAll
+    }, 'drop-to-path routes')
   })
 }

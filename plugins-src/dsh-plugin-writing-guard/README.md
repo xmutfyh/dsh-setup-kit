@@ -1,9 +1,10 @@
 # DSH Writing Guard
 
 [![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)](https://awesome-dsh-plugin.com)
+[![CI](https://github.com/xmutfyh/dsh-plugin-writing-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/xmutfyh/dsh-plugin-writing-guard/actions/workflows/ci.yml)
 
 > DeepSeek Harness (DSH) 论文写作守卫：在论文撰写和修改过程中自动检查常见 AI 写作风格、
-> 修改残留、防御性表达与机械化句式。
+> 修改残留、防御性表达与机械化句式，并在润色时保护科研事实（Scholarship Lock）。
 
 **适用于：中文论文、英文论文、SCI manuscript、毕业论文、学术写作与论文润色。**
 
@@ -20,10 +21,11 @@
 
 **写作前提供规则 → 写作过程中自动守卫 → 修改后自动审计。**
 
-它提供两个 DSH 原生工具：
+它提供三个 DSH 原生工具：
 
 - `writing_rules`：写作前加载学术写作纪律
-- `writing_audit`：检查论文中的 AI-style patterns、revision residue、defensive writing、LLM 高频表达及结构化写作痕迹
+- `writing_audit`：检查论文中的 AI-style patterns、revision residue、defensive writing、LLM 高频表达及结构化写作痕迹；v0.6 起支持 Scholarship Lock（传 `original` 对比润色前后科研事实）与作者风格档案（`styleProfile`）
+- `writing_style_profile`：从作者历史论文统计写作风格指标（句长/密度），零 LLM
 
 并支持在 `.md` / `.tex` / `.txt` 论文文件被 `write` / `edit` 修改后自动执行审计（v0.5 增量模式），将高风险问题反馈给 Agent。
 
@@ -58,6 +60,9 @@
 ## 安装
 
 ```sh
+# 从 npm 安装（已发布，推荐）
+dsh plugin --profile web add dsh-plugin-writing-guard
+
 # 从 GitHub 安装（lib/ 已提交，无需构建）
 dsh plugin --profile web add github:xmutfyh/dsh-plugin-writing-guard
 
@@ -65,7 +70,7 @@ dsh plugin --profile web add github:xmutfyh/dsh-plugin-writing-guard
 dsh plugin --profile web add https://github.com/xmutfyh/dsh-plugin-writing-guard/archive/refs/heads/master.tar.gz
 
 # 或从本地源码目录安装
-dsh plugin --profile web add C:/Users/fyh/Downloads/dsh-plugins-src/dsh-plugin-writing-guard
+dsh plugin --profile web add ./path/to/dsh-plugin-writing-guard
 
 # 重启生效
 dsh web
@@ -96,10 +101,28 @@ biomedical abstracts 词频统计；社区词表 delve/tapestry/testament/levera
 |---|---|
 | 修改过程残留 | "revised model"、"as requested"、"we have updated"、"本轮/投稿前/审稿人要求" |
 | 主张校准 | "we do not claim"、"本文并非要证明"、自我削弱词；研究局限性正当陈述不报警（ICMJE 要求） |
-| 修辞模式 | "不是X而是Y"/"not X but Y"、rather than 滥用、绝对化定义、三连排比 |
+| 修辞模式 | "不是X而是Y"/"not X but Y"、rather than 滥用、绝对化定义、三连排比、重复绕圈 |
 | LLM 关联词 | delve/tapestry/testament/leverage/harness 等（密度规则，单次出现不报警） |
 | 学术文体 | we believe/think、模糊词、抽象副词；"significantly" 仅提示复核统计语境 |
-| 格式 | 破折号密度（范围连字符不算）、冒号标题 |
+| 格式 | 破折号密度（范围连字符不算）、冒号标题、Unicode 数学符号（LaTeX 工作流） |
+
+## v0.6 学术写作质量守卫
+
+定位升级：从"AI 风格 Linter"到"在 Agent 修改学术论文时，持续保护科研事实、作者风格和写作质量"。全部依旧本地正则/统计，零网络零 LLM：
+
+| 能力 | 检测什么 | 例子 |
+|---|---|---|
+| **Scholarship Lock** 🔴 | 润色/改写前后科研事实被改动：数字、百分数、p 值、置信区间、单位、`\cite`/`\ref`、Figure/Table 编号、DOI | `87.3% → 89.1%` 直接 HIGH：语言润色不得改数字；恢复原值或显式确认 |
+| **防御饱和（hedge 密度）** | may/might/could/possibly/potentially 密度 ≥5 次且 ≥300/千句——每个结论都附 caveat | 按句归一，讨论段正常 hedging 不误伤（ICMJE） |
+| **限定词堆叠** | 一条 claim 套多层保险 | `may potentially suggest` → 只留一层 |
+| **超长句 + 从句堆叠** | 英文 >35 词且 ≥3 从句标记（which/that/while/because…）；中文 >80 字且 ≥5 逗号且 ≥3 连接词 | 一句话承载过多独立论点 → 拆句 |
+| **重复绕圈** | 同段句子 token 余弦相似 ≥0.72 且后句无新增证据（数字/引用/实体） | 同一观点换三种说法 → 删重复圈 |
+| **作者风格档案** | `writing_style_profile` 学习作者历史论文；新稿件句长分布显著偏离时提示 | "当前句长中位数 38 vs 作者历史 22" |
+| **强主张缺证据** | prove/establish/confirm/guarantee 附近 ±120 字符无数字/统计量/图表引用 | 提示补充证据锚点，非判定错误 |
+| **连续句首连接词** | 同一段连续 ≥3 句以 Moreover/Furthermore/Additionally 开头 | 机械推进感 |
+| **Unicode 数学符号** | LaTeX 正文中 ₁₂₃ ²³ α β × − 等字符 | 建议改用数学模式 |
+
+> 原则（来自 v0.6 设计评审）：不针对具体模型写规则（GPT-5.6 风格、Opus 风格之类——模型会变，行为模式不会）；有证据依据的 hedging 是正确的学术表达，本工具不是"反 hedge 工具"。
 
 ## 密度阈值（v0.3.3）
 
@@ -129,8 +152,42 @@ biomedical abstracts 词频统计；社区词表 delve/tapestry/testament/levera
 
 | 工具 | 用途 |
 |---|---|
-| `writing_audit` | 扫描文本/文件；参数：text/filePath、profile、verbose；返回按严重度+置信度排序的问题清单与全文统计 |
+| `writing_audit` | 扫描文本/文件；参数：text/filePath、profile、verbose、projectResidueTerms、original（v0.6 Scholarship Lock：修改前原文，对比科研实体变化）、styleProfile（v0.6 作者风格档案 JSON）；返回按严重度+置信度排序的问题清单与全文统计 |
 | `writing_rules` | 返回写作纪律速查（含 profile 与密度说明） |
+| `writing_style_profile` | v0.6：从作者历史论文（filePath/learnDir）统计风格指标（句长中位数/标准差、段长、破折号/hedge/连接词密度），输出 JSON 供 writing_audit 的 styleProfile 使用 |
+
+### 真实输出演示
+
+对一段含修改残留的文本运行 `writing_audit`（verbose=true，真实输出）：
+
+```text
+写作纪律检查报告（文档类型: manuscript）：发现 3 处问题（高 3 / 中 0 / 低 0）
+- 统计：1 段 / 115 字符（英文 19 词 + 中文 0 字）；破折号 0；rather than 0；不是X而是Y 0；绝对化定义 0；三连排比 0；LLM过渡词 0；中文套话 0；冒号标题 0
+- 分类：修改过程残留 3
+
+🔴 [HIGH · conf high] 正文出现 "revised/revision" 修改过程残留 [para 0]
+    原文：The revised model uses the ΔP regression objective only. As requested by the reviewer, we h…
+    提示：正文中出现了 "revised/revision" 等修改过程语言，这是写给审稿人的元话语；正式论文读者只应看到最终版本。（专有名词如 Revised Cardiac Risk Index、revised simplex method，以及文献引用语境 “Smith proposed a revised model” 除外）
+    建议：改为中性论文语言：the proposed model / the model / the present analysis，把“修改”动作从正文清除。
+    依据：style-guide — 写作纪律页：修改过程残留黑名单
+
+🔴 [HIGH · conf high] 审稿回应用语残留 [para 0]
+    原文：The revised model uses the ΔP regression objective only. As requested by the reviewer, we have updated the methods.
+    建议：直接陈述做法或结果本身，不引用审稿过程。
+
+🔴 [HIGH · conf high] "we have updated/modified" 修改叙述 [para 0]
+    原文：…ΔP regression objective only. As requested by the reviewer, we have updated the methods.
+    建议：把句子改写为对最终版本的直接陈述，例如直接描述模型/方法/结果，删除变更动词。
+
+（提示：加 verbose=true 可查看每条的建议与备注；默认只输出原文摘要）
+```
+
+真实调用：
+
+```text
+writing_audit(filePath: "manuscript/main.md", profile: "manuscript", verbose: true)
+→ 写作纪律检查报告：发现 0 处问题 ✅ 通过
+```
 
 ## 自动审计（默认开启，v0.5 增量模式）
 
@@ -139,7 +196,7 @@ manuscript/paper/revision/response/论文/修订/返修…，或位于 01_manusc
 自动审计（自动检测文档 profile），结果经 `additionalContexts` 注入模型下一条请求。
 
 **v0.5 incremental lint**：审计状态按文件持久化（`~/.dsh/plugins/dsh-plugin-writing-guard/state.json`），
-每次写入只注入**增量**：
+每次写入只注入**增量**（v0.5.2：指纹基于命中词本身，同段其他文字编辑不会造成假"解决+新增"重复注入）：
 
 ```text
 新增 1 项 / 已解决 4 项 / 仍存在 8 项
@@ -193,8 +250,10 @@ Writing Guard 更偏向在 DSH 论文工作流中持续检查和预防。
 ## 测试
 
 ```sh
-npm test   # 自动先 build 再跑 63 项 TP/TN/边界用例（无测试框架依赖）
+npm test   # 自动先 build 再跑 134 项 TP/TN/边界用例（零依赖自研 runner，含 isPaperFile/profile 检测/指纹稳定性/Scholarship Lock/风格档案回归）
 ```
+
+CI（GitHub Actions）会在每次 push / PR 自动跑构建 + 全部测试。
 
 ## 开发
 

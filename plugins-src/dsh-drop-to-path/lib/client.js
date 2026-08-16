@@ -40,11 +40,12 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
     var IMPORT_ROUTE = '/_dsh/drop-to-path/import'
+    var RESOLVE_DIR_ROUTE = '/_dsh/drop-to-path/resolve-dir'
     var PATCH_MARK = '__dshDropToPathPatched'
     var CHIPS_ATTR = 'data-drop-to-path-chips'
     var FILE_EXT_PATTERN = /\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|json|zip|mp4|mov|webm|mkv|avi|mp3|wav|flac|m4a)$/i
 
-    /** Non-image files dragged in this page: { path, name } in drop order. */
+    /** Non-image files / folders dragged in this page: { path, name, kind } in drop order. */
     var fileQueue = []
 
     function isImageFile(file) {
@@ -124,8 +125,9 @@ window.__ModuleLoader__.load({
     // ---- file chips: small squares in the attachment rail, same row as images ----
 
     /** Per-format icon + accent color so chips are distinguishable at a glance. */
-    function fileKind(name) {
-      var n = String(name || '').toLowerCase()
+    function fileKind(item) {
+      if (item && item.kind === 'dir') return { icon: '📁', color: '#0e7490' }
+      var n = String(item && item.name || '').toLowerCase()
       if (/\.pdf$/.test(n)) return { icon: '📕', color: '#d9534f' }
       if (/\.docx?$/.test(n)) return { icon: '📘', color: '#2b579a' }
       if (/\.xlsx?$/.test(n)) return { icon: '📗', color: '#217346' }
@@ -175,7 +177,7 @@ window.__ModuleLoader__.load({
       bar.setAttribute(CHIPS_ATTR, '1')
       bar.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center'
       fileQueue.forEach(function (item) {
-        var kind = fileKind(item.name)
+        var kind = fileKind(item)
         var size = thumbnailSize()
         var chip = document.createElement('span')
         chip.style.cssText = 'position:relative;display:inline-flex;flex-direction:column;align-items:center;' +
@@ -214,8 +216,8 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function addFile(path, name) {
-      fileQueue.push({ path: path, name: name })
+    function addFile(path, name, kind) {
+      fileQueue.push({ path: path, name: name, kind: kind || 'file' })
       renderChips()
     }
 
@@ -257,23 +259,123 @@ window.__ModuleLoader__.load({
       })
     }
 
+    // ---- folders: resolve the absolute path by name via host Everything ----
+
+    /** Directory entries in a drop, in drop order (webkitGetAsEntry is the
+     *  only way to see folders; dataTransfer.files is empty for them). */
+    function collectDirEntries(dt) {
+      var out = []
+      if (!dt || !dt.items) return out
+      for (var i = 0; i < dt.items.length; i++) {
+        var item = dt.items[i]
+        if (typeof item.webkitGetAsEntry !== 'function') continue
+        try {
+          var entry = item.webkitGetAsEntry()
+          if (entry && entry.isDirectory) out.push(entry)
+        } catch (error) { /* one bad item must not kill the drop */ }
+      }
+      return out
+    }
+
+    /** Ask the host to look the folder name up in Everything (es.exe). */
+    function resolveDir(name) {
+      return fetch(RESOLVE_DIR_ROUTE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name }),
+      }).then(function (response) {
+        return response.json().then(function (result) {
+          if (!response.ok || !result.ok) {
+            throw new Error(result.error && result.error.message ? result.error.message : 'resolve failed')
+          }
+          return result.value.candidates
+        })
+      })
+    }
+
+    /** Small modal listing every matching folder path; click to pick one. */
+    function showDirPicker(name, candidates, onPick) {
+      var existing = document.querySelector('[data-drop-to-path-picker]')
+      if (existing) existing.remove()
+      var overlay = document.createElement('div')
+      overlay.dataset.dropToPathPicker = '1'
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.45);' +
+        'display:flex;align-items:center;justify-content:center'
+      var box = document.createElement('div')
+      box.style.cssText = 'background:#fff;color:#222;border-radius:12px;max-width:560px;width:calc(100vw - 48px);' +
+        'max-height:70vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.35);' +
+        'font:13px/1.5 sans-serif'
+      var head = document.createElement('div')
+      head.textContent = '找到 ' + candidates.length + ' 个同名文件夹，选一个：'
+      head.style.cssText = 'padding:12px 16px;font-weight:600;border-bottom:1px solid #eee'
+      var list = document.createElement('div')
+      list.style.cssText = 'overflow:auto;padding:6px'
+      candidates.forEach(function (path) {
+        var row = document.createElement('button')
+        row.textContent = path
+        row.title = path
+        row.style.cssText = 'display:block;width:100%;text-align:left;padding:9px 12px;border:0;border-radius:8px;' +
+          'background:transparent;cursor:pointer;font:12px/1.4 monospace;color:#1a1a2e;white-space:nowrap;overflow:hidden;' +
+          'text-overflow:ellipsis'
+        row.addEventListener('mouseenter', function () { row.style.background = '#f0f2fa' })
+        row.addEventListener('mouseleave', function () { row.style.background = 'transparent' })
+        row.addEventListener('click', function () {
+          overlay.remove()
+          onPick(path)
+        })
+        list.append(row)
+      })
+      var foot = document.createElement('div')
+      foot.style.cssText = 'padding:10px 16px;border-top:1px solid #eee;text-align:right'
+      var cancel = document.createElement('button')
+      cancel.textContent = '取消'
+      cancel.style.cssText = 'padding:6px 18px;border:1px solid #d0d5e0;border-radius:8px;background:#fff;cursor:pointer;font:12px sans-serif'
+      cancel.addEventListener('click', function () { overlay.remove() })
+      foot.append(cancel)
+      box.append(head, list, foot)
+      overlay.append(box)
+      document.body.append(overlay)
+    }
+
+    /** Resolve one dropped folder entry → chip (via Everything path lookup). */
+    function enqueueDirEntry(entry, sessions) {
+      var name = entry.name
+      resolveDir(name).then(function (candidates) {
+        if (!candidates || candidates.length === 0) {
+          showNotice('[dsh-drop-to-path] 未找到文件夹 "' + name + '"（Everything 索引里没有？）')
+          return
+        }
+        if (candidates.length === 1) {
+          addFile(candidates[0], name, 'dir')
+          return
+        }
+        showDirPicker(name, candidates, function (path) { addFile(path, name, 'dir') })
+      }).catch(function (error) {
+        console.error('[drop-to-path] folder resolve failed:', error)
+        showNotice('[dsh-drop-to-path] 文件夹解析失败: ' + (error && error.message ? error.message : String(error)))
+      })
+    }
+
     /** Intercept drops/pastes that contain non-image supported files. */
     function installFileInterception(sessions) {
       var onDrop = function (event) {
-        var files = Array.prototype.slice.call(event.dataTransfer ? event.dataTransfer.files : [])
+        var dt = event.dataTransfer
+        var dirEntries = collectDirEntries(dt)
+        var files = Array.prototype.slice.call(dt ? dt.files : [])
         var supported = files.filter(isSupportedFile)
-        if (supported.length === 0) return
+        if (dirEntries.length === 0 && supported.length === 0) return
         var images = supported.filter(isImageFile)
         var others = supported.filter(function (f) { return !isImageFile(f) })
 
         // Pure-image drop: let DSH handle it natively (attachment rail,
         // overlay close, everything) — never intercept.
-        if (others.length === 0) return
+        if (dirEntries.length === 0 && others.length === 0) return
 
-        // Mixed or file-only drop: intercept.
+        // Folders or non-image files: intercept.
         event.preventDefault()
         event.stopPropagation()
-        enqueueFiles(others, sessions)
+        dirEntries.forEach(function (entry) { enqueueDirEntry(entry, sessions) })
+        if (others.length > 0) enqueueFiles(others, sessions)
 
         var target = event.target
         // Mixed drop: re-dispatch the images as a pure-image drop. The

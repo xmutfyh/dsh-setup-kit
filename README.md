@@ -28,7 +28,7 @@
 dsh-setup-kit/
 ├── SETUP-CODEX.md        ← 给 Codex 的逐步安装指令（主入口）
 ├── MANIFEST.md           ← 组件清单与关键修复说明
-├── plugins-src/          ← 7 个本地插件（drag-and-drop / writing-guard 已带补丁）
+├── plugins-src/          ← 8 个本地插件（drag-and-drop / drop-to-path / writing-guard 已带补丁）
 ├── skills/               ← 21 个技能
 ├── scripts/              ← dsh-start / dsh-restart / dsh-patch-dragdrop
 ├── templates/            ← cordis.patch.yml / settings.yaml（占位符模板）

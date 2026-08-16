@@ -35,6 +35,9 @@ export type Severity = 'high' | 'medium' | 'low'
 
 export type Confidence = 'high' | 'medium' | 'low'
 
+/** 插件版本（单点定义：state 标记、工具描述、规则速查共用，避免多处硬编码漂移） */
+export const PLUGIN_VERSION = '0.6.1'
+
 export type DocumentProfile =
   | 'manuscript'    // 论文正文（含摘要/引言/方法/结果/讨论）
   | 'rebuttal'      // 逐条回复信 / response to reviewers
@@ -53,8 +56,8 @@ export interface Threshold {
   minCount?: number
   /** 每千单位阈值（denominator 见 unit） */
   perK?: number
-  /** 密度分母单位：'word'（默认，英文按词；中文用 Intl.Segmenter 切词）| 'char'（纯字符） */
-  unit?: 'word' | 'char'
+  /** 密度分母单位：'word'（默认，英文按词；中文用 Intl.Segmenter 切词）| 'char'（纯字符）| 'sentence'（v0.6 按句） */
+  unit?: 'word' | 'char' | 'sentence'
 }
 
 /** 语言适应的词/字计数（v0.3.1：不要用英文 whitespace-word 衡量中文） */
@@ -75,7 +78,11 @@ export function countWords(text: string): number {
 }
 
 /** 按规则单位计算密度分母（v0.3.3：language-aware——英文规则用英文词数、中文规则用 CJK 字数，双语文件不再互相稀释） */
-function denominatorForRule(text: string, rule: Rule, unit: 'word' | 'char' | undefined): number {
+function denominatorForRule(text: string, rule: Rule, unit: 'word' | 'char' | 'sentence' | undefined): number {
+  if (unit === 'sentence') {
+    // v0.6：句子单位（hedge 密度等按句归一）
+    return splitSentences(text).length
+  }
   if (unit === 'char') {
     // char 单位：优先用 CJK 字数（中文规则），比 text.length 更准（不含英文/标点/Markdown 符号）
     const { cjkChars } = countLexicalUnits(text)
@@ -88,6 +95,236 @@ function denominatorForRule(text: string, rule: Rule, unit: 'word' | 'char' | un
     if (rule.languages[0] === 'zh') return cjkChars
   }
   return englishWords + cjkChars
+}
+
+// ---------------------------------------------------------------------------
+// v0.6 sentence-level utilities（零依赖）
+// ---------------------------------------------------------------------------
+
+/** 句子切分（中英混合；不切分号——分号是句内分隔）。
+ *  半角句号只在后跟大写/中文时切（避免切坏 "Fig. 3"、"et al. (2020)"、"e.g."）；缩写点后跟小写不切。 */
+export function splitSentences(text: string): string[] {
+  return text
+    .split(/[。！？!?]+(?=\s|$|[\u4e00-\u9fffA-Z"'（(])|\.(?=\s+[A-Z\u4e00-\u9fff]|$)/u)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
+/** 中位数（排序后取中） */
+export function medianOf(arr: number[]): number {
+  if (arr.length === 0) return 0
+  const s = [...arr].sort((a, b) => a - b)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+/** 标准差（总体） */
+export function stdOf(arr: number[]): number {
+  if (arr.length === 0) return 0
+  const mu = arr.reduce((a, b) => a + b, 0) / arr.length
+  return Math.sqrt(arr.reduce((a, b) => a + (b - mu) ** 2, 0) / arr.length)
+}
+
+const SIM_STOP = new Set([
+  'the', 'a', 'an', 'of', 'to', 'in', 'and', 'is', 'are', 'was', 'were', 'that', 'this',
+  'with', 'for', 'on', 'as', 'by', 'at', 'from', 'it', 'its', 'we', 'our', 'be', 'been',
+  'can', 'may', 'have', 'has', 'had', 'not', 'but', 'or', 'which', 'their', 'they', 'them',
+  'than', 'these', 'those', 'such', 'into', 'over', 'between', 'while', 'using', 'used',
+  'use', 'via', 'per', 'after', 'before', 'due', 'more', 'most', 'however', 'therefore',
+  'thus', 'also', 'results', 'result', 'method', 'methods', 'model', 'data', 'paper', 'study',
+])
+
+/**
+ * v0.6 restatement-loop 相似度 token：英文按词（小写、去停用词），
+ * 中文按相邻 2-gram 字符（无空格语言无法按词）。
+ */
+export function tokenizeForSimilarity(sentence: string): Map<string, number> {
+  const freq = new Map<string, number>()
+  const bump = (t: string): void => { freq.set(t, (freq.get(t) ?? 0) + 1) }
+  const en = sentence.toLowerCase().match(/[a-z][a-z'-]*/g)
+  for (const w of en ?? []) {
+    if (!SIM_STOP.has(w)) bump(w)
+  }
+  const cjk = sentence.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) ?? []
+  for (let i = 0; i + 1 < cjk.length; i++) bump(cjk[i] + cjk[i + 1])
+  return freq
+}
+
+/** 余弦相似度（两个 token 频率向量） */
+export function cosineSimilarity(a: Map<string, number>, b: Map<string, number>): number {
+  let dot = 0
+  let na = 0
+  let nb = 0
+  for (const [k, v] of a) {
+    na += v * v
+    const w = b.get(k)
+    if (w) dot += v * w
+  }
+  for (const v of b.values()) nb += v * v
+  const d = Math.sqrt(na) * Math.sqrt(nb)
+  return d === 0 ? 0 : dot / d
+}
+
+/** 句子的科研证据实体（数字/百分数/引用/图表编号/大写实体）——restatement 判断"后句是否有新增" */
+function evidenceTokens(sentence: string): Set<string> {
+  const hits = sentence.match(/\b\d+(?:\.\d+)?%?|\b[A-Z][a-z]{2,}\b|\\cite|\\ref|Table\s*\d|Figure\s*\d/g) ?? []
+  return new Set(hits.map((t) => t.toLowerCase()))
+}
+
+/** v0.6 作者风格档案（从作者历史论文统计；零 LLM） */
+export interface StyleProfile {
+  /** 句长中位数（词/字合计） */
+  sentenceLengthMedian: number
+  /** 句长标准差 */
+  sentenceLengthStd: number
+  /** 段长中位数（词/字合计） */
+  paragraphLengthMedian: number
+  /** 破折号密度（/千词） */
+  emDashPerK: number
+  /** hedge 密度（/千词） */
+  hedgePerK: number
+  /** 连接词密度（/千词） */
+  connectivePerK: number
+}
+
+/** 从文本计算风格指标（作者历史或当前稿件皆可） */
+export function computeStyleProfile(text: string): StyleProfile {
+  const sentences = splitSentences(text)
+  const lens = sentences.map((s) => countWords(s))
+  const paraLens = text
+    .split(/\n{2,}/)
+    .map((p) => countWords(p.trim()))
+    .filter((n) => n > 0)
+  const words = countWords(text)
+  const perK = (n: number): number => (words > 0 ? Math.round((n / words) * 1000 * 100) / 100 : 0)
+  const hedgeRe = /\b(may|might|could|possibly|potentially|perhaps)\b/gi
+  const connRe = /\b(moreover|furthermore|additionally|however|therefore|thus|consequently|in addition)\b/gi
+  const emRe = /(——|—|–—)/g
+  return {
+    sentenceLengthMedian: medianOf(lens),
+    sentenceLengthStd: Math.round(stdOf(lens) * 100) / 100,
+    paragraphLengthMedian: medianOf(paraLens),
+    emDashPerK: perK((text.match(emRe) ?? []).length),
+    hedgePerK: perK((text.match(hedgeRe) ?? []).length),
+    connectivePerK: perK((text.match(connRe) ?? []).length),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v0.6 Scholarship Lock：科研实体提取与前后对比（零 LLM，纯确定性）
+// ---------------------------------------------------------------------------
+
+export type ScholarshipType =
+  | 'number'   // 带单位数字（精度/测量值）
+  | 'percent'  // 百分数
+  | 'pvalue'   // p 值
+  | 'ci'       // 置信区间
+  | 'cite'     // \cite{...}
+  | 'ref'      // \ref{...}
+  | 'figure'   // Figure N
+  | 'table'    // Table N
+  | 'doi'      // DOI
+
+export interface ScholarshipEntity {
+  type: ScholarshipType
+  value: string
+}
+
+const SCHOLARSHIP_EXTRACTORS: [ScholarshipType, RegExp][] = [
+  ['cite', /\\cite\*?\{[^{}]*\}/g],
+  ['ref', /\\ref\*?\{[^{}]*\}/g],
+  ['figure', /\bFigures?\s*\d+[a-z]?\b/gi],
+  ['table', /\bTables?\s*\d+[a-z]?\b/gi],
+  ['percent', /\b\d+(?:\.\d+)?\s*%/g],
+  ['pvalue', /\bp\s*[<≤=]\s*0?\.?\d+/gi],
+  ['ci', /\b\d+(?:\.\d+)?\s*[–—-]\s*\d+(?:\.\d+)?\s*(?:CI|%|m|mm|nm|mL|ml|mg|µg|kg|g|s|ms|h|d|°C|K)\b/g],
+  ['doi', /\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+/gi],
+  ['number', /\b\d+(?:\.\d+)?\s*(?:mm|nm|cm|km|kg|g|mg|µg|μg|mL|ml|L|s|ms|h|d|°C|K|Hz|kHz|MHz|V|W|J|mol|M)\b/g],
+]
+
+/** 提取文本中的科研实体（Scholarship Lock 的数据源） */
+export function extractScholarshipEntities(text: string): ScholarshipEntity[] {
+  const out: ScholarshipEntity[] = []
+  for (const [type, re] of SCHOLARSHIP_EXTRACTORS) {
+    for (const m of text.matchAll(re)) out.push({ type, value: m[0].trim() })
+  }
+  return out
+}
+
+export interface ScholarshipChange {
+  type: ScholarshipType
+  before: string
+  after: string
+}
+
+export interface ScholarshipDiff {
+  /** 成对变化（同类型同数量时按顺序配对，如 87.3% → 89.1%） */
+  changed: ScholarshipChange[]
+  /** 消失的实体（citation/ref/图表编号等） */
+  removed: ScholarshipEntity[]
+  /** 新增的实体 */
+  added: ScholarshipEntity[]
+}
+
+/**
+ * 多重集差异：按出现次数而不是集合去重，避免“两个相同数值中改掉一个”
+ * 被漏报（例如 before 有 5 mm、5 mm，after 有 5 mm、6 mm，应报 5 mm → 6 mm）。
+ * 返回值保留原顺序，便于数值类实体按顺序配对。
+ */
+function diffValueLists(beforeValues: string[], afterValues: string[]): { removed: string[]; added: string[] } {
+  const bCounts = new Map<string, number>()
+  const aCounts = new Map<string, number>()
+  for (const v of beforeValues) bCounts.set(v, (bCounts.get(v) ?? 0) + 1)
+  for (const v of afterValues) aCounts.set(v, (aCounts.get(v) ?? 0) + 1)
+
+  const removed = beforeValues.filter((v) => {
+    const bCount = bCounts.get(v) ?? 0
+    const aCount = aCounts.get(v) ?? 0
+    if (bCount > aCount) {
+      bCounts.set(v, bCount - 1)
+      return true
+    }
+    return false
+  })
+  const added = afterValues.filter((v) => {
+    const aCount = aCounts.get(v) ?? 0
+    const bCount = bCounts.get(v) ?? 0
+    if (aCount > bCount) {
+      aCounts.set(v, aCount - 1)
+      return true
+    }
+    return false
+  })
+  return { removed, added }
+}
+
+/** v0.6 Scholarship Lock：对比修改前后的科研事实（数字/引用/图表编号/DOI） */
+export function diffScholarship(before: string, after: string): ScholarshipDiff {
+  const changed: ScholarshipChange[] = []
+  const removed: ScholarshipEntity[] = []
+  const added: ScholarshipEntity[] = []
+  const types: ScholarshipType[] = ['cite', 'ref', 'figure', 'table', 'percent', 'pvalue', 'ci', 'doi', 'number']
+  for (const t of types) {
+    const bv = extractScholarshipEntities(before).filter((e) => e.type === t).map((e) => e.value)
+    const av = extractScholarshipEntities(after).filter((e) => e.type === t).map((e) => e.value)
+    const { removed: rm, added: ad } = diffValueLists(bv, av)
+    // 数值类实体按顺序配对为 changed（如 87.3% → 89.1%）
+    if (t === 'number' || t === 'percent' || t === 'pvalue' || t === 'ci') {
+      const n = Math.min(rm.length, ad.length)
+      for (let i = 0; i < n; i++) changed.push({ type: t, before: rm[i], after: ad[i] })
+      for (const v of rm.slice(n)) removed.push({ type: t, value: v })
+      for (const v of ad.slice(n)) added.push({ type: t, value: v })
+    } else {
+      for (const v of rm) removed.push({ type: t, value: v })
+      for (const v of ad) added.push({ type: t, value: v })
+    }
+  }
+  return { changed, removed, added }
+}
+
+const SCHOLARSHIP_TYPE_LABEL: Record<ScholarshipType, string> = {
+  number: '带单位数值', percent: '百分数', pvalue: 'p 值', ci: '置信区间',
+  cite: '\\cite 引用', ref: '\\ref 引用', figure: 'Figure 编号', table: 'Table 编号', doi: 'DOI',
 }
 
 export interface Rule {
@@ -129,6 +366,8 @@ export interface Rule {
   sectionBased?: boolean
   /** section-based 规则的触发阈值：命中章节数 ≥ 该值才报 */
   sectionThreshold?: number
+  /** v0.6：restatement-loop 专用规则（段内句子相似度检测，不走 density/段落扫描） */
+  restatementLoop?: boolean
 }
 
 export interface Hit {
@@ -142,10 +381,12 @@ export interface Hit {
   message: string
   suggestion: string
   note?: string
-  /** v0.3.1：证据来源传播到报告（GPT：confidence+evidence 要落地到 UX） */
+  /** v0.3.1：证据来源传播到报告（confidence+evidence 要落地到 UX） */
   evidence?: Evidence
   /** 密度信息（全文统计级规则） */
   density?: { count: number; perK: number }
+  /** v0.5.2：命中原文（段落级规则填充），用于稳定指纹——同段其他文字编辑不影响指纹 */
+  matchText?: string
 }
 
 export interface Stats {
@@ -235,7 +476,8 @@ const RULES: Rule[] = [
     severity: 'high',
     confidence: 'high',
     label: '"we have updated/modified" 修改叙述',
-    pattern: /\bwe (have |now |also )?(updated|modified|corrected|clarified|expanded|rewritten|replaced|revised)\b/gi,
+    // v0.5.2：支持 "we have now updated" / "we now have updated" 等组合（旧实现可选组只匹配一个词）
+    pattern: /\bwe (?:have |now |also ){0,3}(?:updated|modified|corrected|clarified|expanded|rewritten|replaced|revised)\b/gi,
     message: '检测到“we have updated / modified / corrected…”式修改叙述，这是给审稿人的变更说明，不是论文陈述。',
     suggestion: '把句子改写为对最终版本的直接陈述，例如直接描述模型/方法/结果，删除变更动词。',
     maxHits: 3,
@@ -332,14 +574,15 @@ const RULES: Rule[] = [
     evidence: { type: 'heuristic' },
   },
   {
-    id: 'limitation-dispersal',
+    id: 'limitations-across-sections',
     category: 'claim_calibration',
     severity: 'low',
     confidence: 'medium',
-    label: '局限性跨章节分散',
-    // v0.4：不再用词频 threshold——改由 detectSections 检测"同一局限散落在 ≥3 个章节"
+    label: '局限性表述跨章节分散',
+    // v0.4：section-based 规则——检测"局限类表述散落在 ≥3 个顶层章节"
+    // v0.5.1：改名 + 文案降级（算法不做语义等价，不能声称"同一局限"）
     pattern: /(limitation|局限|不足|cannot be (generalized|extended)|not be applied)/gi,
-    message: '“局限/limitation”类表述散落在多个章节（≥3 个 section），同一局限在多处重复免责。',
+    message: '局限性相关表述出现在 ≥3 个顶层章节，请检查是否存在重复免责；这并不意味着这些表述描述的是同一局限。',
     suggestion: '边界声明集中写：方法定位一处 + 结论边界一处；其余用证据角色表达。注意：在 Discussion 中正当陈述局限（ICMJE 要求）不算问题，重点是避免同一局限在多个章节重复。',
     languages: ['zh', 'en'],
     evidence: { type: 'style-guide', source: 'ESR 指南：边界声明集中写' },
@@ -407,7 +650,8 @@ const RULES: Rule[] = [
     severity: 'low',
     confidence: 'low',
     label: '三连排比（rule of three）',
-    pattern: /\b[a-z]{3,}, [a-z]{3,}, and [a-z]{3,}\b/g,
+    // v0.5.2：忽略大小写（"Clear, Concise, and Compelling" 句首大写也应命中）
+    pattern: /\b[a-z]{3,}, [a-z]{3,}, and [a-z]{3,}\b/gi,
     threshold: { minCount: 4, perK: 0.8 },
     message: '“X, Y, and Z”三连排比全文密度过高（≥4 处且 ≥0.8/千词）。LLM 偏爱恰好三组的对称结构（“clear, concise, and compelling”），是社区公认的 AI 结构痕迹。',
     suggestion: '保留确实需要列举的三项；纯修辞性三连改为更自然的表述，长短句混用打破节奏。',
@@ -478,7 +722,7 @@ const RULES: Rule[] = [
     confidence: 'low',
     label: '"significantly" 无统计证据',
     pattern: /\bsignificantly\b/gi,
-    // v0.3.1：真正实现"附近有统计证据则跳过"（GPT：文案写了逻辑没实现）；match-local 窗口
+    // v0.3.1：真正实现"附近有统计证据则跳过"（此前文案写了逻辑没实现）；match-local 窗口
     context: {
       window: 120,
       exclude: /(p\s*[<≤=]\s*0?\.?\d|p\s*=\s*0?\.?\d|95%\s*CI|confidence interval|CI\s*[\[(]|OR\s*=\s*[\d.]|HR\s*=\s*[\d.]|β\s*=\s*[\d.]|effect size|Cohen'?s\s*d|statistically significant|significant (difference|association|correlation|increase|decrease|reduction|improvement|effect|change))/i,
@@ -542,9 +786,182 @@ const RULES: Rule[] = [
     message: '检测到多个“XXX: XXXXXXX”式标题。审稿人指出：标题冒号前后必须是适合冒号的关系（并列或递进），否则明显是硬凑。',
     suggestion: '检查每个冒号标题：冒号前后是否并列/递进？不是则改题。',
     languages: ['zh', 'en'],
-    // v0.4：只扫 heading 段（GPT：冒号标题判断只针对标题，正文里的冒号句不算）
+    // v0.4：只扫 heading 段（冒号标题判断只针对标题，正文里的冒号句不算）
     segments: ['heading'],
     evidence: { type: 'heuristic' },
+  },
+
+  // ================= v0.6 学术写作质量守卫 =================
+
+  {
+    id: 'hedge-density-en',
+    category: 'claim_calibration',
+    severity: 'medium',
+    confidence: 'low',
+    label: '防御性限定词密度过高（英文）',
+    pattern: /\b(may|might|could|possibly|potentially|perhaps|not necessarily|cannot rule out|should be interpreted with caution|we refrain from|we do not claim)\b/gi,
+    // v0.6：按句归一（unit: sentence）——每做结论都附 caveat 的"防御饱和"行为
+    threshold: { minCount: 5, perK: 300, unit: 'sentence' },
+    message: '防御性限定词（may/might/could/possibly/potentially…）密度过高（≥5 次且 ≥300/千句）：每做一个结论都附 caveat，文章被限定条件淹没。',
+    suggestion: '有证据依据的 hedging 是正确学术表达（ICMJE），不要全部删除；重点清理同一条 claim 上的多层限定（见 hedge-stacking）和无需限定的常识结论。Discussion 中可保留正常 hedging；Abstract/Conclusion 应逐句复核。',
+    languages: ['en'],
+    evidence: { type: 'heuristic' },
+    note: '密度规则：单次 hedge 不报警；这是"防御饱和"的整体行为检测，不是反 hedge 工具。',
+  },
+  {
+    id: 'hedge-density-zh',
+    category: 'claim_calibration',
+    severity: 'medium',
+    confidence: 'low',
+    label: '防御性限定词密度过高（中文）',
+    pattern: /(可能|或许|也许|不一定|不能排除|尚需进一步|有待进一步|需谨慎解读|并不意味着|并不代表|并非一定)/g,
+    threshold: { minCount: 5, perK: 300, unit: 'sentence' },
+    message: '防御性限定词（可能/或许/也许/不一定…）密度过高（≥5 次且 ≥300/千句）：每个结论都附带 caveat，自我限制淹没内容。',
+    suggestion: '同一边界只写一次；有依据的限定保留，重复的自我免责删除。',
+    languages: ['zh'],
+    evidence: { type: 'heuristic' },
+    note: '与"并非要证明"等防御性声明不同，本规则检测的是整体限定密度。',
+  },
+  {
+    id: 'hedge-stacking',
+    category: 'claim_calibration',
+    severity: 'medium',
+    confidence: 'medium',
+    label: '限定词堆叠（一条 claim 套多层保险）',
+    // 不含 well："may well be" 是正常表达；只报 hedge+hedge 真堆叠
+    pattern: /\b(may|might|could|can)\s+(possibly|potentially|perhaps)\s+(suggest|indicate|imply|reflect|represent|be|lead|result)\b|(或许|也许|可能){2}/gi,
+    message: '检测到限定词堆叠（"may potentially suggest"、"could possibly indicate"、中文"或许可能"）：一条 claim 套了两三层保险，是典型的防御饱和写法。',
+    suggestion: '保留一层最准确的限定，其余删除："may suggest" 就够，不需要 "may potentially suggest"。',
+    maxHits: 3,
+    languages: ['zh', 'en'],
+    evidence: { type: 'heuristic' },
+  },
+  {
+    id: 'overlong-sentence-en',
+    category: 'academic_style',
+    severity: 'medium',
+    confidence: 'high',
+    label: '超长句 + 从句堆叠（英文）',
+    // v0.6：counter 实现——句子 >35 词且从句标记 ≥3
+    pattern: /\b(which|that|while|whereas|although|because|thereby|leading to|resulting in)\b/gi,
+    threshold: { minCount: 2, perK: 0 },
+    counter: (text: string): number => {
+      let n = 0
+      for (const s of splitSentences(text)) {
+        const words = countLexicalUnits(s).englishWords
+        const markers = (s.match(/\b(which|that|while|whereas|although|because|thereby|leading to|resulting in)\b/gi) ?? []).length
+        if (words > 35 && markers >= 3) n += 1
+      }
+      return n
+    },
+    message: '存在 ≥2 个超长堆叠句（>35 词且 ≥3 个从句标记 which/that/while/because…）：一句话承载了过多独立论点。',
+    suggestion: '把长句拆成 2–3 个短句；每个句子只承担一个论点。',
+    languages: ['en'],
+    evidence: { type: 'heuristic' },
+    note: '学术英文长句常见，但">35 词 + ≥3 从句标记"同时满足才报，正常表述不受影响。',
+  },
+  {
+    id: 'overlong-sentence-zh',
+    category: 'academic_style',
+    severity: 'medium',
+    confidence: 'high',
+    label: '超长句 + 连接词堆叠（中文）',
+    pattern: /(其中|同时|进一步|从而|进而|因此|并且|尤其|这意味着)/g,
+    threshold: { minCount: 2, perK: 0 },
+    counter: (text: string): number => {
+      let n = 0
+      for (const s of splitSentences(text)) {
+        const chars = countLexicalUnits(s).cjkChars
+        const commas = (s.match(/[，；,;]/g) ?? []).length
+        const conns = (s.match(/(其中|同时|进一步|从而|进而|因此|并且|尤其|这意味着)/g) ?? []).length
+        if (chars > 80 && commas >= 5 && conns >= 3) n += 1
+      }
+      return n
+    },
+    message: '存在 ≥2 个超长句（>80 字且 ≥5 个逗号/分号且 ≥3 个逻辑连接词）：一句话塞进多个独立论点。',
+    suggestion: '按连接词位置拆句，每句只讲一个论点；"其中/同时/进一步"驱动的长链改为短句。',
+    languages: ['zh'],
+    evidence: { type: 'heuristic' },
+  },
+  {
+    id: 'connective-overuse',
+    category: 'llm_associated',
+    severity: 'low',
+    confidence: 'low',
+    label: '连续句首连接词',
+    // v0.6：counter 实现——同一段内连续 ≥3 句以连接词开头
+    pattern: /\b(Moreover|Furthermore|Additionally|In addition|However|Therefore|Thus|Consequently|Meanwhile)\b/gi,
+    threshold: { minCount: 1, perK: 0 },
+    counter: (text: string): number => {
+      let n = 0
+      for (const para of text.split(/\n{2,}/)) {
+        const sents = splitSentences(para).filter((s) => s.length > 0)
+        let run = 0
+        for (const s of sents) {
+          if (/^(Moreover|Furthermore|Additionally|In addition|However|Therefore|Thus|Consequently|Meanwhile)[,\s]/i.test(s)) {
+            run += 1
+            if (run >= 3) { n += 1; break }
+          } else {
+            run = 0
+          }
+        }
+      }
+      return n
+    },
+    message: '检测到同一段内连续 ≥3 句以连接词开头（Moreover/Furthermore/Additionally…），机械推进感强。',
+    suggestion: '删掉大部分句首连接词，用内容本身的逻辑推进；保留少量用于真实转折。',
+    languages: ['en'],
+    evidence: { type: 'literature', source: 'Kobak et al. 2025' },
+  },
+  {
+    id: 'claim-evidence-proximity',
+    category: 'claim_calibration',
+    severity: 'medium',
+    confidence: 'low',
+    label: '强主张附近缺少证据锚点',
+    pattern: /\b(prove[sd]?|proven|established?|confirmed?|guarantee[sd]?|definitively|unequivocally|unambiguously|conclusively|we prove|we establish)\b/gi,
+    // v0.6：附近 ±120 字符无证据锚点（数字/%/p 值/CI/图表引用/citation）才提示
+    context: {
+      window: 120,
+      exclude: /\b\d+(?:\.\d+)?\s*%?|p\s*[<≤=]\s*0?\.?\d|\bCI\b|confidence interval|95%|Table\s*\d|Figure\s*\d|\\cite|\[\d+\]/i,
+    },
+    message: '检测到强主张动词（prove/establish/confirm/guarantee…），但附近 ±120 字符没有证据锚点（数字/百分数/p 值/置信区间/图表引用）。',
+    suggestion: '不是说主张错误：请在强主张附近补充具体证据（数字、统计量或引用）；若确无证据支撑，弱化为证据导向表述。',
+    maxHits: 3,
+    languages: ['en'],
+    evidence: { type: 'heuristic' },
+    note: '仅提示复核：附近有数据/统计量/图表引用时不报警。',
+  },
+  {
+    id: 'format-unicode-math',
+    category: 'formatting',
+    severity: 'low',
+    confidence: 'low',
+    label: 'Unicode 数学符号（建议改用 LaTeX 数学模式）',
+    // v0.6：Unicode 下标/上标/希腊字母/数学符号在正文中（LaTeX 工作流常见"露馅"）
+    pattern: /[\u2080-\u209c\u00b9\u00b2\u00b3\u2070-\u2079\u00b5\u00d7\u2212\u03b1-\u03c9\u0391-\u03a9]/g,
+    message: '检测到 Unicode 下标/上标/希腊字母/数学符号（₁₂₃ ²³ α β × −…）。在 LaTeX 工作流中，这类字符往往是润色/转换时留下的格式杂质。',
+    suggestion: '若是 LaTeX 文档，请改用数学模式（$x_{1}$、$\alpha$）；若已确定保留 Unicode（如生物学术语 α diversity），可忽略。',
+    maxHits: 4,
+    languages: ['zh', 'en'],
+    evidence: { type: 'heuristic' },
+    note: '低危提示：α diversity 等正当术语不受影响，人工确认即可。',
+  },
+  {
+    id: 'restatement-loop',
+    category: 'rhetorical_pattern',
+    severity: 'low',
+    confidence: 'low',
+    label: '重复绕圈（同段句子高相似且无新增证据）',
+    pattern: /(.)/,
+    // v0.6：restatementLoop 专用——段内句子两两 cosine ≥ 0.72 且后句无新增证据
+    restatementLoop: true,
+    message: '本段相邻句子具有较高词汇重合（相似度 ≥0.72），且后句未引入新的数据、引用或实体。',
+    suggestion: '检查是否在重复解释同一观点：删掉重复圈，只保留信息量最大的那一句；必要时合并为一句。',
+    maxHits: 3,
+    languages: ['zh', 'en'],
+    evidence: { type: 'heuristic' },
+    note: '词汇相似不是语义相同的证据——本规则只提示"可能"绕圈，人工复核后决定。',
   },
 ]
 
@@ -555,15 +972,18 @@ const RULES: Rule[] = [
 /** 检测文档类型（从文件路径推断）——v0.3.1 收紧：peer-review 只认明确词，综述类归 manuscript */
 export function detectDocumentProfile(filePath: string): DocumentProfile {
   const norm = filePath.replace(/\\/g, '/').toLowerCase()
-  if (/rebuttal|response[_ -]?to[_ -]?reviewers?|回复审稿|返修回复|逐条回复/.test(norm)) return 'rebuttal'
+  // v0.5.2：rebuttal 同时认 "revision_response"（返修回复的常见命名）
+  if (/rebuttal|response[_ -]?to[_ -]?(reviewers?|revisions?)|revision[_ -]?response|回复审稿|返修回复|逐条回复/.test(norm)) return 'rebuttal'
   if (/cover[_ -]?letter|投稿信/.test(norm)) return 'cover_letter'
-  // 明确的审稿材料（GPT v0.3.1：systematic_review / literature_review / scoping_review / review_article 是论文而非审稿意见）
-  if (/(reviewer[_ -]?comments?|review[_ -]?comments?|peer[_ -]?review|referee[_ -]?report|审稿意见|评审意见)/.test(norm)) return 'review'
+  // 明确的审稿材料（v0.3.1：systematic_review / literature_review / scoping_review / review_article 是论文而非审稿意见；
+  // v0.5.2：支持 "reviewer2_comments"、"reviewer 2 comments" 这类带编号的常见命名）
+  if (/(reviewer[ _\-.]?\d*[ _\-.]?comments?|review[ _\-.]?comments?|peer[_ -]?review|referee[_ -]?report|审稿意见|评审意见)/.test(norm)) return 'review'
   // 综述类论文归 manuscript
   if (/(systematic[_ -]?review|literature[_ -]?review|scoping[_ -]?review|review[_ -]?article|narrative[_ -]?review)/.test(norm)) return 'manuscript'
-  if (/manuscript|paper|thesis|论文|稿件|修订|返修稿/.test(norm)) return 'manuscript'
-  // 一般笔记/草稿（GPT v0.3.1：让 notes profile 可被自动检测到）
-  if (/(^|\/)(notes?|draft|草稿|笔记|scratch)(\/|\.|$)/.test(norm)) return 'notes'
+  // v0.5.2：补英文 revision/revised，与 isPaperFile 的判定词表对齐（revision_notes.md 等修订材料不再掉进 unknown）
+  if (/manuscript|paper|thesis|revision|revised|论文|稿件|修订|返修稿/.test(norm)) return 'manuscript'
+  // 一般笔记/草稿（v0.3.1：让 notes profile 可被自动检测到；v0.5.2：支持 my_notes / draft_notes 等常见前缀）
+  if (/(^|[\/_\-. ])(notes?|draft|草稿|笔记|scratch)([\/_\-. ]|$)/.test(norm)) return 'notes'
   return 'unknown'
 }
 
@@ -620,13 +1040,27 @@ export function filterReport(report: AuditReport, minSeverity: Severity): AuditR
 }
 
 // ---------------------------------------------------------------------------
-// v0.5 incremental lint：指纹与增量 diff（GPT 规划——"新增 1 / 解决 4 / 仍存在 8"）
+// v0.5 incremental lint：指纹与增量 diff（"新增 1 / 解决 4 / 仍存在 8"）
 // ---------------------------------------------------------------------------
 
-/** 稳定指纹：ruleId + 规范化 snippet（去空白/截断；不含段落索引——编辑后行号会变） */
+/**
+ * v0.5.2：稳定指纹——aggregate（density/section）规则用 ruleId（每文件每种最多一个）；
+ * 段落级用 ruleId + 命中原文（matchText）归一化。
+ *
+ * 为什么不用命中点 ±60/80 的上下文片段：同一段落内其他位置的编辑会改变片段，
+ * 导致同一个未修复的问题被误判为 resolved+added，每次编辑都重新注入（v0.5.1 只修了
+ * density 指纹，段落级仍会抖动）。命中原文只在问题真正被修复时消失——语义正好是
+ * "该处命中已解决"。代价：两处命中词相同的不同位置共享指纹，修复其一后另一处仍在时
+ * 不报 resolved（保守正确，宁可少报不误报）。
+ */
 export function hitFingerprint(h: Hit): string {
-  const snippet = h.snippet.replace(/\s+/g, ' ').trim().slice(0, 120)
-  return `${h.ruleId}::${snippet}`
+  // aggregate hit（density / section-based）：snippet 含 count/denominator 会随编辑变化，
+  // 不能作为指纹（4/3200 → 4/3300 会被误判为 resolved+added）
+  if (h.paragraphIndex === -1) {
+    return `aggregate::${h.ruleId}`
+  }
+  const core = (h.matchText ?? '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 60)
+  return `${h.ruleId}::${core || '?'}`
 }
 
 export interface AuditDiff {
@@ -637,7 +1071,7 @@ export interface AuditDiff {
   currentTotal: number  // 当前问题数
 }
 
-/** 对比上一次指纹集合与当前 hits，返回增量（GPT：自动模式只告诉 agent 新增/解决） */
+/** 对比上一次指纹集合与当前 hits，返回增量（自动模式只告诉 agent 新增/解决） */
 export function diffAudit(previous: Set<string>, current: Hit[]): AuditDiff {
   const currentFps = new Set(current.map((h) => hitFingerprint(h)))
   const added = current.filter((h) => !previous.has(hitFingerprint(h)))
@@ -669,7 +1103,7 @@ export function deserializeFingerprints(arr: unknown): Set<string> {
 // ---------------------------------------------------------------------------
 
 /**
- * v0.4 preprocessing：从"一串 replace"升级为 segment pipeline（GPT P2 规划）。
+ * v0.4 preprocessing：从"一串 replace"升级为 segment pipeline。
  * 文档被切分为带类型的 Segment，规则声明自己扫描的 segment 类型——
  * LLM 词表只扫 prose，colon-title 只扫 heading，references/code/math/table 默认忽略。
  */
@@ -679,6 +1113,8 @@ export interface Segment {
   kind: SegmentKind
   /** 清洗后的文本（行内 code/math/URL/LaTeX 已剥离） */
   text: string
+  /** v0.5.1：标题级别（Markdown # 数量 / LaTeX section=1 subsection=2...），非 heading 段无此字段 */
+  headingLevel?: number
 }
 
 export interface DocumentView {
@@ -690,6 +1126,12 @@ export interface DocumentView {
   references: string
 }
 
+/** v0.5.1：LaTeX 命令分类——argument 是引用 key 的命令整体删除，不把 key 留进 prose */
+const DROP_ARG_COMMANDS = new Set([
+  'cite', 'citep', 'citet', 'citep', 'citet', 'citenum', 'ref', 'eqref', 'autoref', 'label',
+  'bibliography', 'includegraphics', 'url', 'href', 'index', 'footnote',
+])
+
 /** 行内清理：剥离行内 code / LaTeX math / Markdown 链接（保留 anchor）/ URL / LaTeX 命令 */
 function cleanInline(t: string): string {
   let s = t
@@ -698,6 +1140,9 @@ function cleanInline(t: string): string {
   s = s.replace(/\[([^\]]+)\]\(https?:\/\/[^)]*\)/g, '$1')
   s = s.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
   s = s.replace(/https?:\/\/\S+/g, ' ')
+  // v0.5.1：引用/标签类命令整体删除（\cite{smith-revised-2025} → ''，key 不是 prose）
+  s = s.replace(new RegExp(`\\\\(?:${[...DROP_ARG_COMMANDS].join('|')})\\*?\\{([^{}]*)\\}`, 'g'), ' ')
+  // 格式化命令保留 argument（\textbf{important result} → important result）
   s = s.replace(/\\[a-zA-Z]+\{([^{}]*)\}/g, '$1')
   s = s.replace(/\\[a-zA-Z]+\s*/g, ' ')
   return s
@@ -711,7 +1156,6 @@ export function preprocess(text: string): DocumentView {
   const segments: Segment[] = []
   const lines = text.split(/\r?\n/)
   let i = 0
-  let inRefs = false
 
   const flushProse = (buf: string[]): void => {
     if (buf.length === 0) return
@@ -728,13 +1172,20 @@ export function preprocess(text: string): DocumentView {
 
   while (i < lines.length) {
     const line = lines[i]
-    // References 段：一旦遇到 References 标题，后续全部归 reference
-    if (!inRefs && REF_HEADING_RE.test('\n' + line + '\n')) {
+    // References 段：从 References 标题到下一个标题行（v0.5.2：References 之后的
+    // Appendix/Supplementary 常以 heading 开头，不再被整段吞进 reference 而漏扫）
+    if (REF_HEADING_RE.test('\n' + line + '\n')) {
       flushProse(buf); buf = []
-      inRefs = true
-      const rest = lines.slice(i).join('\n')
-      segments.push({ kind: 'reference', text: rest })
-      break
+      let end = lines.length
+      for (let j = i + 1; j < lines.length; j++) {
+        if (/^\s{0,3}(#{1,6})\s+/.test(lines[j]) || /^\s*\\(sub)*section\*?\{/.test(lines[j])) {
+          end = j
+          break
+        }
+      }
+      segments.push({ kind: 'reference', text: lines.slice(i, end).join('\n') })
+      i = end
+      continue
     }
     // YAML frontmatter（文件开头）
     if (i === 0 && /^---\s*$/.test(line)) {
@@ -756,25 +1207,33 @@ export function preprocess(text: string): DocumentView {
       i = endIdx + 1
       continue
     }
-    // Markdown 标题
-    const heading = line.match(/^\s{0,3}#{1,6}\s+(.+)$/)
+    // Markdown 标题（v0.5.1：记录 heading level 供 section hierarchy 使用）
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+)$/)
     if (heading) {
       flushProse(buf); buf = []
-      segments.push({ kind: 'heading', text: cleanInline(heading[1].trim()) })
+      segments.push({ kind: 'heading', text: cleanInline(heading[2].trim()), headingLevel: heading[1].length })
       i += 1
       continue
     }
-    // LaTeX section 标题
-    const latexHeading = line.match(/^\s*\\section\*?\{([^}]+)\}/)
+    // LaTeX section/subsection 标题（v0.5.1：记录 level）
+    const latexHeading = line.match(/^\s*\\(sub)*section\*?\{([^}]+)\}/)
     if (latexHeading) {
       flushProse(buf); buf = []
-      segments.push({ kind: 'heading', text: cleanInline(latexHeading[1].trim()) })
+      const level = 1 + (latexHeading[1]?.match(/sub/g)?.length ?? 0)
+      segments.push({ kind: 'heading', text: cleanInline(latexHeading[2].trim()), headingLevel: level })
       i += 1
       continue
     }
     // LaTeX 块公式（$$...$$ 单独行 或 equation 环境）
     if (/^\s*\$\$/.test(line) || /^\s*\\begin\{equation/.test(line)) {
       flushProse(buf); buf = []
+      // 先检测单行闭合 $$...$$，避免把后续正文全部吞进 math
+      const trimmed = line.trim()
+      if (trimmed.startsWith('$$') && trimmed.endsWith('$$') && trimmed.length > 4) {
+        segments.push({ kind: 'math', text: line })
+        i += 1
+        continue
+      }
       const start = i
       if (/^\s*\$\$/.test(line)) {
         const end = lines.findIndex((l, j) => j > i && /^\s*\$\$/.test(l))
@@ -827,9 +1286,24 @@ export interface Section {
 
 /**
  * v0.4 section detection：把 heading 段映射到章节，正文按章节归组。
- * 用于 limitation-dispersal 等"跨章节分散"检测。
+ * v0.5.1：维护 heading hierarchy——Discussion 下的 "Sample size / External validity /
+ * Measurement" 子标题不拆成三个 section。
+ * v0.5.2：章节基准层级 = 第一个匹配常见章节名的 heading 的层级。Markdown 常见结构
+ * "# 论文标题" + "## Introduction/## Methods" 时章节是 level 2；全用 "# Introduction"
+ * 时基准为 1。修复了旧实现把 "# 标题" 当章节、所有正文归入其下导致跨章节检测失效的问题。
  */
 export function detectSections(view: DocumentView): Section[] {
+  let baseLevel = 1
+  for (const seg of view.segments) {
+    if (seg.kind !== 'heading') continue
+    const level = seg.headingLevel ?? 1
+    const lower = seg.text.toLowerCase()
+    if (SECTION_NAMES.some((s) => lower.includes(s))) {
+      baseLevel = level
+      break
+    }
+  }
+
   const sections: Section[] = []
   let current = 'unknown'
   let buf: string[] = []
@@ -843,10 +1317,14 @@ export function detectSections(view: DocumentView): Section[] {
 
   for (const seg of view.segments) {
     if (seg.kind === 'heading') {
-      flush()
-      const lower = seg.text.toLowerCase()
-      const matched = SECTION_NAMES.find((s) => lower.includes(s))
-      current = matched ?? seg.text.slice(0, 40)
+      const level = seg.headingLevel ?? 1
+      if (level === baseLevel) {
+        flush()
+        const lower = seg.text.toLowerCase()
+        const matched = SECTION_NAMES.find((s) => lower.includes(s))
+        current = matched ?? seg.text.slice(0, 40)
+      }
+      // 子标题（level ≠ 基准）：不新开 section，正文继续归当前顶层章节
     } else if (seg.kind === 'prose') {
       buf.push(seg.text)
     }
@@ -862,6 +1340,49 @@ export interface AuditOptions {
   projectResidueTerms?: string[]
   /** v0.4：true 时先预处理再审计（剥离 references/code/math/URL），默认 true */
   preprocess?: boolean
+  /** v0.6 Scholarship Lock：修改前文本；提供时对比数字/引用/图表编号等科研实体的变化（HIGH） */
+  original?: string
+  /** v0.6 Author Style Profile：作者历史风格档案（writing_style_profile 生成）；提供时检测句长分布漂移 */
+  styleProfile?: StyleProfile
+}
+
+export interface RestatementLoop {
+  paraIndex: number
+  sim: number
+  sentences: [string, string]
+}
+
+/**
+ * v0.6 重复绕圈检测：段内句子两两 cosine 相似 ≥0.72，且后句未引入新的
+ * 证据实体（数字/引用/图表编号/大写实体）→ 疑似同一观点换说法重复解释。
+ * 每段最多报 1 对。纯 token 统计，零 LLM。
+ */
+export function findRestatementLoops(text: string, max: number): RestatementLoop[] {
+  const out: RestatementLoop[] = []
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+  for (let pi = 0; pi < paragraphs.length && out.length < max; pi++) {
+    const sents = splitSentences(paragraphs[pi]).slice(0, 12)
+    if (sents.length < 3) continue
+    const toks = sents.map(tokenizeForSimilarity)
+    const evs = sents.map(evidenceTokens)
+    let reported = false
+    for (let i = 0; i < sents.length - 1 && !reported; i++) {
+      for (let j = i + 1; j < sents.length && !reported; j++) {
+        const sim = cosineSimilarity(toks[i], toks[j])
+        if (sim >= 0.72) {
+          const newEvidence = [...evs[j]].filter((e) => !evs[i].has(e))
+          if (newEvidence.length === 0) {
+            out.push({ paraIndex: pi, sim, sentences: [sents[i], sents[j]] })
+            reported = true
+          }
+        }
+      }
+    }
+  }
+  return out
 }
 
 export function auditText(text: string, opts?: AuditOptions): AuditReport {
@@ -893,7 +1414,7 @@ export function auditText(text: string, opts?: AuditOptions): AuditReport {
     words,
     englishWords,
     cjkChars,
-    // v0.3.1：统计与规则同一 source of truth（GPT：杜绝 counter 漂移）
+    // v0.3.1：统计与规则同一 source of truth（杜绝 counter 漂移）
     emDashCount: countRuleById('em-dash-density', scanText),
     // v0.4：colon-title 只统计 heading 段（与规则 segments 声明一致）
     colonTitleCount: countRuleById('colon-title', headingText),
@@ -945,6 +1466,28 @@ export function auditText(text: string, opts?: AuditOptions): AuditReport {
       continue
     }
 
+    // v0.6 restatement-loop 规则：段内句子相似度（不依赖固定词表）
+    if (rule.restatementLoop) {
+      const loops = findRestatementLoops(scanText, rule.maxHits ?? 3)
+      for (const l of loops) {
+        hits.push({
+          ruleId: rule.id,
+          category: rule.category,
+          severity: rule.severity,
+          confidence: rule.confidence,
+          label: rule.label,
+          paragraphIndex: l.paraIndex,
+          snippet: `（相似度 ${(l.sim * 100).toFixed(0)}%）句 A：${l.sentences[0].slice(0, 90)} … 句 B：${l.sentences[1].slice(0, 90)}`,
+          message: rule.message,
+          suggestion: rule.suggestion,
+          note: rule.note,
+          evidence: rule.evidence,
+          matchText: l.sentences[0].slice(0, 40),
+        })
+      }
+      continue
+    }
+
     // segment 过滤（v0.4）：规则只扫自己声明的类型，缺省 prose
     const ruleSegs = rule.segments ?? ['prose']
     const ruleText = ruleSegs.map((k) => segTextByKind[k] ?? '').filter((s) => s.length > 0).join('\n\n')
@@ -977,7 +1520,9 @@ export function auditText(text: string, opts?: AuditOptions): AuditReport {
       continue
     }
 
-    // 段落级规则：只扫描规则声明的 segment 类型
+    // 段落级规则：只扫描规则声明的 segment 类型。
+    // v0.5.2：用带 g 的克隆正则在同一段落内继续 exec，同段多处命中都报告（受 maxHits 全局上限约束）；
+    // 不再修改共享的 rule.pattern.lastIndex。context 排除只跳过当前命中，继续本段后续位置。
     const ruleParagraphs = ruleText
       .split(/\n{2,}|\r?\n\r?\n/)
       .map((p) => p.trim())
@@ -985,47 +1530,41 @@ export function auditText(text: string, opts?: AuditOptions): AuditReport {
       .slice(0, maxParagraphs)
     const maxHits = rule.maxHits ?? 3
     let found = 0
+    const scanRe = new RegExp(rule.pattern.source, rule.pattern.flags.includes('g') ? rule.pattern.flags : rule.pattern.flags + 'g')
     for (let i = 0; i < ruleParagraphs.length && found < maxHits; i++) {
       const para = ruleParagraphs[i]
-      const m = rule.pattern.exec(para)
-      if (!m) continue
-      // 命中位置局部上下文（v0.3.1 match-local）：只看当前 match ±window，不再整段排除
-      if (rule.context && m.index !== undefined) {
-        const { window: w, exclude, require: requireRe } = rule.context
-        const start = Math.max(0, m.index - w)
-        const end = Math.min(para.length, m.index + (m[0]?.length ?? 0) + w)
-        const windowText = para.slice(start, end)
-        if (exclude && exclude.test(windowText)) {
-          exclude.lastIndex = 0
-          rule.pattern.lastIndex = 0
-          continue
+      scanRe.lastIndex = 0
+      let m: RegExpExecArray | null
+      while (found < maxHits && (m = scanRe.exec(para)) !== null) {
+        // 命中位置局部上下文（v0.3.1 match-local）：只看当前 match ±window，不再整段排除
+        if (rule.context && m.index !== undefined) {
+          const { window: w, exclude, require: requireRe } = rule.context
+          const start = Math.max(0, m.index - w)
+          const end = Math.min(para.length, m.index + (m[0]?.length ?? 0) + w)
+          const windowText = para.slice(start, end)
+          if (exclude && exclude.test(windowText)) continue
+          if (requireRe && !requireRe.test(windowText)) continue
         }
-        exclude?.lastIndex !== undefined && (exclude.lastIndex = 0)
-        if (requireRe && !requireRe.test(windowText)) {
-          requireRe.lastIndex = 0
-          rule.pattern.lastIndex = 0
-          continue
-        }
-        requireRe?.lastIndex !== undefined && (requireRe.lastIndex = 0)
+        found += 1
+        const start = Math.max(0, m.index - 60)
+        const end = Math.min(para.length, m.index + (m[0]?.length ?? 0) + 80)
+        const snippet = (start > 0 ? '…' : '') + para.slice(start, end) + (end < para.length ? '…' : '')
+        hits.push({
+          ruleId: rule.id,
+          category: rule.category,
+          severity: rule.severity,
+          confidence: rule.confidence,
+          label: rule.label,
+          paragraphIndex: i,
+          snippet,
+          message: rule.message,
+          suggestion: rule.suggestion,
+          note: rule.note,
+          evidence: rule.evidence,
+          matchText: m[0],
+        })
       }
-      found += 1
-      const start = Math.max(0, (m.index ?? 0) - 60)
-      const end = Math.min(para.length, (m.index ?? 0) + (m[0]?.length ?? 0) + 80)
-      const snippet = (start > 0 ? '…' : '') + para.slice(start, end) + (end < para.length ? '…' : '')
-      hits.push({
-        ruleId: rule.id,
-        category: rule.category,
-        severity: rule.severity,
-        confidence: rule.confidence,
-        label: rule.label,
-        paragraphIndex: i,
-        snippet,
-        message: rule.message,
-        suggestion: rule.suggestion,
-        note: rule.note,
-        evidence: rule.evidence,
-      })
-      rule.pattern.lastIndex = 0
+      scanRe.lastIndex = 0
     }
   }
 
@@ -1050,11 +1589,75 @@ export function auditText(text: string, opts?: AuditOptions): AuditReport {
         label: '项目内部词表残留',
         paragraphIndex: i,
         snippet: (start > 0 ? '…' : '') + para.slice(start, end) + (end < para.length ? '…' : ''),
-        message: `检测到项目内部词表条目 "${m[0]}"（可通过 writing_audit 的 projectResidueTerms 配置维护）。`,
+        message: `检测到项目内部词表条目 "${m[0]}"（可通过 writing_audit 的 projectResidueTerms 参数或插件配置维护）。`,
         suggestion: '确认为内部流程词则删除或改写；若不是内部词，请从 projectResidueTerms 移除。',
         evidence: { type: 'project-specific' },
+        matchText: m[0],
       })
       re.lastIndex = 0
+    }
+  }
+
+  // v0.6 Scholarship Lock：对比修改前后的科研实体（数字/引用/图表编号/DOI）。
+  // 注意用原始文本（view.raw）——prose 已剥离 \cite 等 LaTeX 命令，无法对比引用。
+  if (opts?.original !== undefined && opts.original.trim()) {
+    const diff = diffScholarship(opts.original, view.raw)
+    const lockTypes = new Set<ScholarshipType>(['cite', 'ref', 'figure', 'table', 'percent', 'pvalue', 'ci'])
+    for (const c of diff.changed) {
+      hits.push({
+        ruleId: 'scholarship-lock',
+        category: 'claim_calibration',
+        severity: 'high',
+        confidence: 'high',
+        label: `科研实体被修改（${SCHOLARSHIP_TYPE_LABEL[c.type]}）`,
+        paragraphIndex: -1,
+        snippet: `${c.before} → ${c.after}`,
+        message: '润色操作改变了科研事实（数字/统计量/数值与修改前不一致）。如果这是有意的科学内容修改，请显式确认；如果只是语言润色，请恢复原值。',
+        suggestion: `恢复原值（${c.before}），或在回复中显式说明这是有意的科学修改（而非语言润色）。`,
+        evidence: { type: 'heuristic' },
+        matchText: `scholarship:${c.type}:${c.before}->${c.after}`,
+      })
+    }
+    for (const r of diff.removed) {
+      if (!lockTypes.has(r.type)) continue
+      hits.push({
+        ruleId: 'scholarship-lock',
+        category: 'claim_calibration',
+        severity: 'high',
+        confidence: 'high',
+        label: `科研实体消失（${SCHOLARSHIP_TYPE_LABEL[r.type]}）`,
+        paragraphIndex: -1,
+        snippet: r.value,
+        message: `修改后丢失了 ${SCHOLARSHIP_TYPE_LABEL[r.type]}：${r.value}。引用/图表编号不应在润色中被删除。`,
+        suggestion: '恢复被删除的引用/编号；如确为有意删除，请显式确认。',
+        evidence: { type: 'heuristic' },
+        matchText: `scholarship-removed:${r.type}:${r.value}`,
+      })
+    }
+  }
+
+  // v0.6 Author Style Profile：句长分布漂移检测（偏离作者历史写作分布）
+  if (opts?.styleProfile) {
+    const lens = splitSentences(scanText).map((s) => countWords(s))
+    if (lens.length >= 5) {
+      const med = medianOf(lens)
+      const sp = opts.styleProfile
+      const threshold = Math.max(sp.sentenceLengthMedian * 0.5, sp.sentenceLengthStd * 2, 8)
+      const dev = Math.abs(med - sp.sentenceLengthMedian)
+      if (dev > threshold) {
+        hits.push({
+          ruleId: 'style-profile-drift',
+          category: 'academic_style',
+          severity: 'low',
+          confidence: 'low',
+          label: '句长分布偏离作者历史风格',
+          paragraphIndex: -1,
+          snippet: `（风格档案对比）当前句长中位数 ${med} 词 vs 作者历史 ${sp.sentenceLengthMedian} 词（偏差 ${dev.toFixed(1)} > 阈值 ${threshold.toFixed(1)}）`,
+          message: '当前文本的句长分布明显偏离作者历史写作风格（中位数句长偏差超过阈值）。',
+          suggestion: '把超长句拆短（或把碎片句合并），向作者历史分布靠拢；如本文有意采用不同风格（如综述），可忽略。',
+          evidence: { type: 'project-specific' },
+        })
+      }
     }
   }
 
@@ -1131,7 +1734,7 @@ export function formatReport(report: AuditReport, opts?: { verbose?: boolean }):
 /** 输出给 Agent 的纪律速查文本（写作前加载） */
 export function rulesBrief(): string {
   return [
-    '# 论文写作纪律速查（dsh-plugin-writing-guard v0.3）',
+    `# 论文写作纪律速查（dsh-plugin-writing-guard v${PLUGIN_VERSION}）`,
     '',
     '## 一、修改过程残留（process residue，仅正文/投稿信）',
     '- 正文不得出现 "revised/revision"、"as requested"、"we have updated"、"previous version" 等修改过程语言',
@@ -1162,12 +1765,22 @@ export function rulesBrief(): string {
     '- 破折号按密度：全文 ≥5 次且 ≥0.5/千词时删除大部分（范围连字符 30–75 °C 不算）',
     '- 冒号标题必须前后并列或递进',
     '',
-    '## 六、发布会原则（扬长避短）',
+    '## 六、v0.6 学术质量守卫（Scholarship Lock / 防御饱和 / 句式）',
+    '- Scholarship Lock：润色/改写/去 AI 味时严禁改动数字、百分数、p 值、置信区间、单位、\\cite/\\ref、Figure/Table 编号、DOI；改前先调用 writing_audit(original=原文) 对比',
+    '- 防御饱和：may/might/could/possibly/potentially 密度 ≥5 次且 ≥300/千句时清理；一条 claim 套多层保险（may potentially suggest）必须拆到只剩一层；有证据依据的 hedging 保留（ICMJE）',
+    '- 超长句堆叠：英文 >35 词且 ≥3 从句标记、中文 >80 字且 ≥5 逗号且 ≥3 连接词——拆句',
+    '- 重复绕圈：同段句子高词汇重合且无新增证据时删掉重复圈',
+    '- 强主张（prove/establish/confirm/guarantee）附近必须有证据锚点（数字/统计量/图表引用），否则弱化',
+    '- 作者风格：用 writing_style_profile 学习作者历史论文，新稿件句长分布偏离时向作者靠拢',
+    '- LaTeX 中 Unicode 下标/希腊字母（₁ α）改用数学模式',
+    '',
+    '## 七、发布会原则（扬长避短）',
     '- 只围绕优势组织论文；不写工作汇报、不主动示弱、不替审稿人攻击自己',
     '- 打不过的维度不设为比赛项目；不占优的结果从目标/约束/场景解释',
     '- 优势必须明确说出来；结论只强化记忆点',
     '',
     '## 七、提交前自查',
     '- 用 writing_audit 工具对全文扫描（可指定 profile: manuscript/rebuttal/cover_letter）；高危项必须清零，中危项 ≤3 处，低危项可保留但应说明理由',
+    '- 润色/改写后：用 writing_audit(original=改前原文) 确认 Scholarship Lock 无 HIGH（科研事实未被改动）',
   ].join('\n')
 }
