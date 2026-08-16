@@ -84,7 +84,7 @@ Copy-Item "$Kit\skills\*" "$env:USERPROFILE\.dsh\skills\" -Recurse -Force
 ## 7. 复制管理器脚本 + 修改机器相关路径
 
 ```powershell
-Copy-Item "$Kit\scripts\dsh-start.ps1","$Kit\scripts\dsh-restart.ps1","$Kit\scripts\dsh-patch-dragdrop.ps1" "$env:USERPROFILE\Downloads\"
+Copy-Item "$Kit\scripts\dsh-start.ps1","$Kit\scripts\dsh-restart.ps1","$Kit\scripts\dsh-stop.ps1","$Kit\scripts\dsh-patch-dragdrop.ps1" "$env:USERPROFILE\Downloads\"
 ```
 **关键**：`dsh-start.ps1` 里的 `$dshBin` 是源机器的 npx 缓存绝对路径，**本机不同**。
 用下面命令解析本机实际路径并替换（打开 `%USERPROFILE%\Downloads\dsh-start.ps1` 编辑）：
@@ -96,6 +96,15 @@ Get-ChildItem "$env:LOCALAPPDATA\npm-cache\_npx" -Directory -ErrorAction Silentl
   Select-Object -First 1
 ```
 把脚本里 `$dshBin = "C:\Users\fyh\..."` 换成上面的输出（同样检查 `dsh-restart.ps1` 内对 dsh-start.ps1 的引用路径）。
+
+顺手创建桌面「退出DSH」快捷键（调用本机 Downloads 下的 dsh-stop.ps1）：
+
+```powershell
+$stop = "$env:USERPROFILE\Downloads\dsh-stop.ps1"
+[System.IO.File]::WriteAllText("$env:USERPROFILE\Desktop\退出DSH.cmd",
+  "@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"$stop`"`r`n",
+  (New-Object System.Text.UTF8Encoding($false)))
+```
 
 ## 8. 应用配置模板
 

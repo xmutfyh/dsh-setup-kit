@@ -30,7 +30,7 @@ dsh-setup-kit/
 ├── MANIFEST.md           ← 组件清单与关键修复说明
 ├── plugins-src/          ← 8 个本地插件（drag-and-drop / drop-to-path / writing-guard 已带补丁）
 ├── skills/               ← 21 个技能
-├── scripts/              ← dsh-start / dsh-restart / dsh-patch-dragdrop
+├── scripts/              ← dsh-start / dsh-restart / dsh-stop / dsh-patch-dragdrop
 ├── templates/            ← cordis.patch.yml / settings.yaml（占位符模板）
 ├── launcher/             ← dsh-launcher 0.1.6
 └── everything-portable/  ← Everything + es.exe
@@ -41,4 +41,4 @@ dsh-setup-kit/
 - **不要** `dsh plugin update` 本地插件、不要重编译（补丁会被覆盖）
 - **不要**用 PowerShell 默认编码写配置文件（用 UTF-8 无 BOM）
 - 手机远控：每次重启后隧道域名变化，需重新扫码（dsh-start.ps1 自动同步配置）
-- 源机器遗留脚本：`Downloads\dsh-start.ps1`、`dsh-restart.ps1`、`dsh-patch-dragdrop.ps1` 与此包 scripts/ 一致
+- 源机器遗留脚本：`Downloads\dsh-start.ps1`、`dsh-restart.ps1`、`dsh-stop.ps1`、`dsh-patch-dragdrop.ps1` 与此包 scripts/ 一致

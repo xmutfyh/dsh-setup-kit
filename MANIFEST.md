@@ -30,6 +30,7 @@ ppt-master、web-access（浏览器 CDP 控制）、scientific-image2-visio 等�
 |---|---|
 | dsh-start.ps1 | 启动管理器：外置 cloudflared 隧道 + 动态 publicBaseUrl + `--trusted-host` 启动 + UTF-8 无 BOM 安全写配置 |
 | dsh-restart.ps1 | 重启助手（保留隧道、域名不变） |
+| dsh-stop.ps1 | 完整退出：杀 dsh 后端 + cloudflared + launcher（DshWeb.exe），清启动锁/隧道状态文件 |
 | dsh-patch-dragdrop.ps1 | drag-and-drop 补丁重打（升级后执行） |
 
 > ⚠️ 机器相关：dsh-start.ps1 内 `$dshBin` 是源机器 npx 缓存路径，目标机必须按
@@ -48,6 +49,7 @@ ppt-master、web-access（浏览器 CDP 控制）、scientific-image2-visio 等�
 |---|---|
 | launcher/ | dsh-launcher 0.1.6（MSI + 便携 zip），GitHub: Ruler4396/dsh-launcher |
 | everything-portable/ | Everything 1.4.1 + es.exe（拖拽全盘索引，需管理员运行） |
+| 桌面「退出DSH.cmd」 | setup.ps1 自动生成，一键退出 DSH（调用 `scripts\dsh-stop.ps1`） |
 
 ## 不包含（目标机自行处理）
 

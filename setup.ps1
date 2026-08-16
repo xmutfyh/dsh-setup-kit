@@ -196,6 +196,22 @@ if (-not $SkipLauncher) {
   } else { Write-Warn "未找到 MSI，跳过（可手动安装 launcher\dsh-launcher-windows.zip 便携版）" }
 } else { Write-Warn "已跳过启动器安装" }
 
+# ---------- 9b. 桌面「退出 DSH」快捷键 ----------
+Write-Step "创建桌面「退出 DSH」快捷键"
+try {
+  $desktop = [Environment]::GetFolderPath('Desktop')
+  $stopScript = Join-Path $KitRoot "scripts\dsh-stop.ps1"
+  $cmdPath = Join-Path $desktop "退出DSH.cmd"
+  $cmdContent = "@echo off`r`n" +
+    "rem 退出 DSH（完整版）：关 launcher 窗口 + 杀 dsh 后端 + 杀 cloudflared 隧道 + 清启动锁`r`n" +
+    "rem 由 dsh-setup-kit\setup.ps1 生成；下次打开 dsh-launcher 会自动干净地重新拉起`r`n" +
+    'powershell -NoProfile -ExecutionPolicy Bypass -File "' + $stopScript + '"' + "`r`n"
+  [System.IO.File]::WriteAllText($cmdPath, $cmdContent, (New-Object System.Text.UTF8Encoding($false)))
+  Write-Ok "已创建 $cmdPath"
+} catch {
+  Write-Warn "创建桌面快捷键失败：$($_.Exception.Message)"
+}
+
 # ---------- 10. 完成 ----------
 Write-Step "完成"
 Write-Host @"
