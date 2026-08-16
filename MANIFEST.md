@@ -14,7 +14,7 @@
 | dsh-file-mentions | - | 回复路径可点击 | - |
 | dsh-plugin-anydoc | - | 任意文件→Markdown | - |
 | dsh-plugin-ocr | 0.1.0 | 本地 OCR（RapidOCR，需 pip 装 rapidocr_onnxruntime） | - |
-| dsh-plugin-writing-guard | 1.2.1 | 确定性 manuscript integrity guard（Revision Integrity + claim-bound + alignment credibility + Scholarship 全方向）：Scholarship Lock（含 number/DOI/新增方向）+ Epistemic Lock（因果/证据力+角色排除、hedge、claim-bound 守恒、scope 统一分类、alignment-uncertain、版本差距保护、exec.token 自动前后对比）+ findingKind + SKILL.md | ✅ Config 兼容 cordis 4（`export const Config`→`const DEFAULT_CONFIG`） |
+| dsh-plugin-writing-guard | 1.2.2 | 确定性 manuscript integrity guard（Revision Integrity + claim-bound + alignment credibility + 自动交付）：Scholarship Lock（全方向含新增）+ Epistemic Lock（因果/证据力+角色排除、hedge、claim-bound 守恒、scope 统一分类、alignment-uncertain、版本差距保护+全局清单、exec.token 自动前后对比、event-level 增量指纹、invariant 恒显）+ findingKind + SKILL.md | ✅ Config 兼容 cordis 4（`export const Config`→`const DEFAULT_CONFIG`） |
 
 npm 插件（第 3 步安装，不在包内）：`@linxin666/dsh-web-ui-all@0.1.12`（任务看板/Git图谱/右侧面板/实时token/皮肤/SSH/宠物/手机远控）
 
