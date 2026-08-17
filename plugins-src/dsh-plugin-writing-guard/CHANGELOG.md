@@ -4,6 +4,138 @@ All notable changes to dsh-plugin-writing-guard are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-08-17
+
+### Added / Fixed — Semantic Hardening
+
+- **`claimDensity` 取代 `claimCount` 进入 Journal Fit**：`claimCount` 保留为描述性元数据，
+  主分数改用 `claims / 1000 words`，避免 section 长度直接主导分数。
+- **`ClaimSpan.spanKind`**：新增 `claim / procedural / descriptive / unknown` 启发式标签，
+  为后续真正的 proposition semantics 留出扩展点。
+- **移除旧 regex epistemic 重复计权**：Journal Fit 主分数不再直接使用 `hedgeDensity` /
+  `causalForce` / `evidentialForce` 三个旧 regex 密度，避免与 ClaimSpan epistemic ratios 重复。
+- **`results_discussion` 独立 canonical section**：不再把 `Results and Discussion` 强行并入
+  `results`，避免混合解释/机制污染 Results 语料。
+- **epistemic ratios 数值 TP/TN 测试**：覆盖 highCausal / strongEvidence / hedged / scope /
+  null 的真实语义。
+- `PLUGIN_VERSION` 1.6.0 → 1.6.1。
+
+### Tests
+
+- 298 → 308: semantic hardening TP/TN（10 项新增）。
+
+## [1.6.0] - 2026-08-17
+
+
+### Added — Rhetorical Moves（Introduction / Discussion / Results / Methods 序列）
+
+- **`detectRhetoricalMoves(text, sectionName)`**: 零 LLM 的轻量 rhetorical move 检测，返回去重后的 move 序列。
+- **Journal Profile `rhetoric` 升级**：
+  - `sectionMoves`: 每个 canonical section 的 move 出现频率
+  - `transitions`: move → move 的转移概率
+  - `moves`: 全局 move 频率
+- **Journal Fit 新增 rhetorical 指标**：
+  - `rhetorical move coverage`
+  - `rhetorical order fit`（LCS 序列相似度）
+- `PLUGIN_VERSION` 1.5.0 → 1.6.0。
+
+### Tests
+
+- 294 → 298: rhetorical moves 单元测试、rhetoric profile sectionMoves/transitions、Journal Fit rhetorical metrics。
+
+## [1.5.0] - 2026-08-17
+
+
+### Added — Epistemic Journal Fingerprint（复用 ClaimSpan）
+
+- **Journal Engine 不再只数 regex 词频**：`computeSectionSample` 现在通过
+  `splitSentences` → `extractClaimSpans` 提取每个章节的 claim-level 科学主张指纹。
+- **`JournalSectionProfile` 新增 v1.5 分布字段**：
+  - `claimCount`
+  - `highCausalRatio`（causalLevel ≥ 4）
+  - `hedgedClaimRatio`
+  - `strongEvidentialRatio`（evidentialLevel ≥ 4）
+  - `scopeQualifiedRatio`
+  - `nullFindingRatio`（零结果/否定）
+- **Journal Fit 新增 6 个 epistemic 指标**，与原有句法/引用指标一起参与打分。
+- **`JournalProfile.epistemics` 同步扩展**，全局 corpus 也能输出 epistemic fingerprint。
+- `PLUGIN_VERSION` 1.4.2 → 1.5.0。
+
+### Tests
+
+- 293 → 294: epistemic fingerprint distributions 存在性检查。
+
+## [1.4.2] - 2026-08-17
+
+
+### Added / Fixed — Journal Fit engineering hardening
+
+- **CI 真实语料解耦（P0）**: real-corpus smoke test 在本地语料不存在时自动 SKIP，不再让 GitHub
+  Actions / npm publish 因缺少 `D:\裂缝盐析` 而失败；支持 `WRITING_GUARD_REAL_CORPUS` 环境变量指定语料目录。
+- **Ratio 型指标评分修复（P1）**: `journalMetricScore` 增加 `minSpread`，第一人称/被动语态等 0–1
+  比例指标使用 `minSpread=0.05`，避免 10% vs 90% 仍被误判为 ok。
+- **引用密度拆分（P1）**: Journal Profile 新增 `bibliographicCitationDensity` 与
+  `figureTableReferenceDensity` 两个独立分布；Journal Fit 分别输出“文献引用密度”和“图表引用密度”。
+- **Journal Fit Confidence（P1）**: 报告新增 `confidence`（very_low/low/medium/high）与
+  `corpusSize`；formatReport 显示 Profile Confidence 和每个 section 的 `n=` 覆盖数。
+- **Canonical section aliases 扩充（P2）**: `materials & methods`、`experimental methods`、
+  `modeling/modelling`、`summary`、`results and discussion`、`background` 等常见别名归一化。
+- `PLUGIN_VERSION` 1.4.1 → 1.4.2。
+
+### Tests
+
+- 291 → 293: Journal Fit confidence/corpusSize、split citation distributions。
+
+## [1.4.1] - 2026-08-17
+
+
+### Fixed / Added — Corpus-aware Journal Distillation
+
+- **`computeJournalProfileFromDocuments(documents, opts)`**: 新增多论文聚合入口。每篇论文独立
+  `preprocess` / `detectSections`，不再 `chunks.join("
+
+")` 后当作一篇超长文档。
+- **Canonical section mapping**: `method / methods / methodology / materials and methods` → `methods`；
+  `conclusion / conclusions` → `conclusion`。
+- **`JournalSectionProfile` 全部指标升级为 `Distribution`**: `sentenceLength` / `paragraphLength` /
+  `hedgeDensity` / `causalForce` / `evidentialForce` / `firstPersonUsage` / `passiveVoice` /
+  `citationDensity` 都保存跨论文聚合后的分布；新增 `articleCount`。
+- **`auditJournalFit()` 修复**: 删除 scalar 伪装 Distribution 的临时逻辑，所有指标直接使用真实
+  Distribution 打分；新增 **引用密度** 进入 Journal Fit。
+- **`writing_journal_profile`**: 按 `JournalDocument[]` 读取每篇论文，并正确写入
+  `metadata.sampleSize = documents.length`。
+- **被动语态检测增强**: 补充 `shown / found / given / seen / known / taken / made / used /
+  considered / observed / measured / performed / conducted / calculated / estimated / simulated /
+  modeled / modelled / reported / detected / described / discussed / presented` 等常用过去分词。
+- `PLUGIN_VERSION` 1.4.0 → 1.4.1。
+
+### Tests
+
+- 284 → 291: sections 91–92（corpus-aware 三篇 Results 中位数聚合、D盘真实 source.md smoke test）。
+
+## [1.4.0] - 2026-08-17
+
+
+### Added — Journal Engine（期刊写作蒸馏与 Journal Fit，DSH Scientific Writing Guard 基础层）
+
+- **`JournalProfile` schema**: 新增 `Distribution` / `JournalSectionProfile` / `JournalProfile` /
+  `JournalFitReport` 类型——从目标期刊代表论文提取句长/段长/hedge/因果力/证据力/第一人称/被动语态/
+  引用密度的抽象统计分布，不保存论文原句。
+- **`writing_journal_profile` 工具**: 从目标期刊代表论文目录/文件（.md/.tex/.txt）蒸馏 Journal Profile，
+  零网络零 LLM，纯本地统计；支持 `journal` / `articleType` / `discipline` 元数据。
+- **`writing_audit(journalProfile=...)`**: 传入 Journal Profile JSON 后，输出 section-level Journal Fit
+  报告（每个章节契合度百分比 + 主要差异 + 目标分布范围），并在 `formatReport` 中独立展示。
+- **`computeJournalProfile` / `auditJournalFit`**: 导出纯函数，供 tests / 其他 DSH 工具直接调用。
+- **`rulesBrief` 新增 Journal Engine 纪律**: 明确 Journal Fit 不能覆盖 Scientific Integrity 的优先级
+  （Invariant > Epistemic Safety > Journal Requirement > Journal Norm > Journal Style）。
+- **`claimAnchor` 中文支持**: Epistemic 指纹的 claim identity 增加 CJK bigram，帮助中文 scientific
+  revision 区分不同 claim 上的相同漂移（模型A vs 治疗组不再因同一种关联→因果变化而指纹碰撞）。
+- `PLUGIN_VERSION` 1.3.0 → 1.4.0，package.json / CHANGELOG / SKILL / rules.ts 版本统一。
+
+### Tests
+
+- 276 → 284: sections 89–90（Journal Profile 蒸馏 metadata/distributions/statistics-only、Journal Fit 审计/format/缺失章节 warning）。
+
 ## [1.3.0] - 2026-08-16
 
 ### Added — 篇章统计层（第 10 轮评审 9.55/10：局部规则 → 篇章统计 → 科学完整性）

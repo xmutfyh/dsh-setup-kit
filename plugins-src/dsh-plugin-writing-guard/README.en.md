@@ -20,11 +20,12 @@ Instead it works continuously:
 
 **rules before writing → guard while writing → audit after edits.**
 
-It provides three native DSH tools:
+It provides four native DSH tools:
 
 - `writing_rules` — load the writing-discipline cheat sheet before writing
-- `writing_audit` — scan text for AI-style patterns, revision residue, defensive writing, LLM-overused expressions and structural tells; `original` arg enables **Scholarship Lock** (numbers/citations/Figure/Table/DOI conservation) + **Epistemic Lock** (claim-strength drift on causal & evidential axes, negation/null-result flips, scope-boundary removal), each hit tagged with its finding kind (INVARIANT / VIOLATION / CANDIDATE / ADVISORY); `styleProfile` adds author-style drift detection
+- `writing_audit` — scan text for AI-style patterns, revision residue, defensive writing, LLM-overused expressions and structural tells; `original` arg enables **Scholarship Lock** (numbers/citations/Figure/Table/DOI conservation) + **Epistemic Lock** (claim-strength drift on causal & evidential axes, negation/null-result flips, scope-boundary removal), each hit tagged with its finding kind (INVARIANT / VIOLATION / CANDIDATE / ADVISORY); `styleProfile` adds author-style drift detection; `journalProfile` adds section-level **Journal Fit** against a target journal writing profile
 - `writing_style_profile` — learn an author's writing style from previous papers (sentence-length distribution, densities), zero LLM
+- `writing_journal_profile` — distill a target journal's writing profile from representative papers (section-level sentence/paragraph length, hedge/causal/evidential density, first-person/passive ratios, citation density), zero LLM
 
 and optionally auto-audits paper files (`.md` / `.tex` / `.txt`) after every `write` / `edit`
 (v0.5 incremental mode + v0.8 automatic before/after capture via `tools/pre-execute`, keyed by
@@ -148,6 +149,65 @@ neatly**. Seven new deterministic/statistical rules (zero network):
 | **`local-citation-integrity`** 🔴 | zero-network deterministic: `\cite{key}` exists in `.bib`, `\ref` has a matching `\label`, bib entries missing title/year/author, one DOI mapped to several keys; manual and auto-audit both probe a sibling `.bib`; "does this citation support this claim" stays outside the plugin boundary | violation/advisory |
 | **StyleProfile → rhythm fingerprint** | adds `sentenceLengthCV`/`shortSentenceRatio`/`longSentenceRatio`/`paragraphLengthStd`/`paragraphLengthCV` (backward compatible) | — |
 
+## v1.4 Journal Engine (target-journal writing distillation & Journal Fit)
+
+> On top of the Integrity Engine (Scholarship + Epistemic Lock), this adds a **Journal Engine**:
+> not "mimic Nature", but distill reusable **writing distributions** from representative target-journal
+> papers so AI-assisted revision can converge toward the journal's real writing norms without changing
+> the science. Everything is deterministic/statistical, zero network, zero LLM.
+
+| capability | what it does |
+|---|---|
+| **`writing_journal_profile`** | distill a Journal Profile from representative target-journal papers (`.md/.tex/.txt`): per-section sentence/paragraph length distributions, hedge/causal/evidential density, first-person/passive ratios, global citation density; stores abstract statistics only, never original sentences |
+| **`writing_audit(journalProfile=...)`** | with a Journal Profile JSON, outputs a section-level Journal Fit report (per-section score + main differences + target P10-P90 range) |
+| **`computeJournalProfile` / `auditJournalFit`** | exported pure functions for tests and other DSH tools |
+| **priority rule** | Scientific Invariant > Epistemic Safety > Journal Requirement > Journal Norm > Journal Style; journal style can never override scientific integrity |
+
+## v1.4.1 Corpus-aware Journal Distillation
+
+> Fixes the P0 where multiple papers were joined into one text and same-named sections overwrote each other.
+> Each document is now parsed independently and aggregated by canonical section across documents.
+
+- Added `computeJournalProfileFromDocuments(documents, opts)`; `writing_journal_profile` reads each file as a separate `JournalDocument`.
+- `JournalSectionProfile` metrics are all `Distribution` now, with a new `articleCount`.
+- Canonical section mapping: `method/methods/methodology/materials and methods → methods`, `conclusion/conclusions → conclusion`.
+- Journal Fit now includes citation density and no longer fakes scalar values as distributions.
+- Passive-voice detection now includes common irregular participles (`shown`, `found`, `given`, `seen`, `known`, `taken`, `made`, etc.).
+
+## v1.4.2 Journal Fit hardening
+
+- **CI-safe real-corpus tests**: local corpus tests are skipped when no corpus is available; use `WRITING_GUARD_REAL_CORPUS` to point at a private corpus.
+- **Ratio scoring fix**: first-person/passive ratios use `minSpread=0.05`, so 10% vs 90% is no longer treated as OK.
+- **Citation split**: `bibliographicCitationDensity` and `figureTableReferenceDensity` are now separate distributions and separate Journal Fit metrics.
+- **Journal Fit Confidence**: reports include `confidence` (very_low/low/medium/high) and `corpusSize`.
+- **More canonical aliases**: `materials & methods`, `experimental methods`, `modeling/modelling`, `summary`, `results and discussion`, `background`, etc.
+
+## v1.5 Epistemic Journal Fingerprint (ClaimSpan-based)
+
+- Journal Engine now reuses `extractClaimSpans` instead of counting regex keywords.
+- New per-section distributions:
+  - `claimCount`
+  - `highCausalRatio` (causalLevel ≥ 4)
+  - `hedgedClaimRatio`
+  - `strongEvidentialRatio` (evidentialLevel ≥ 4)
+  - `scopeQualifiedRatio`
+  - `nullFindingRatio`
+- Journal Fit includes these epistemic fingerprint metrics alongside syntactic/citation metrics.
+
+## v1.6 Rhetorical Moves
+
+- Added `detectRhetoricalMoves(text, sectionName)` for zero-LLM move detection.
+- Journal Profile `rhetoric` now includes `sectionMoves` and `transitions`.
+- Journal Fit adds `rhetorical move coverage` and `rhetorical order fit` (LCS-based).
+
+## v1.6.1 Semantic Hardening
+
+- Journal Fit main score now uses `claimDensity`; `claimCount` stays as descriptive metadata.
+- `ClaimSpan` gains `spanKind` (claim / procedural / descriptive / unknown).
+- Removed duplicate old regex epistemic scoring (`hedgeDensity`, `causalForce`, `evidentialForce`) from the main Journal Fit score.
+- `Results and Discussion` is now its own canonical `results_discussion` section.
+- Added numerical TP/TN tests for epistemic ratios.
+
 ## Density thresholds (v0.3.3)
 
 Frequency rules use **per-1000-language-unit** density: English rules are normalized by English
@@ -182,9 +242,10 @@ Reports show `🔴 HIGH · conf high`, so you know which findings are determinis
 
 | tool | purpose |
 |---|---|
-| `writing_audit` | scan text/file; args: text/filePath, profile, verbose, projectResidueTerms, original (v0.6 Scholarship Lock: text before polishing — compares research entities), styleProfile (v0.6 author style profile JSON); returns issues sorted by severity+confidence plus full-text stats |
+| `writing_audit` | scan text/file; args: text/filePath, profile, verbose, projectResidueTerms, original (v0.6 Scholarship Lock: text before polishing — compares research entities), styleProfile (v0.6 author style profile JSON), journalProfile (v1.4 target-journal profile JSON); returns issues sorted by severity+confidence plus full-text stats and optional Journal Fit |
 | `writing_rules` | return the writing-discipline cheat sheet (profiles + density rules) |
 | `writing_style_profile` | v0.6: learn style metrics (sentence-length median/std, paragraph length, em-dash/hedge/connective density) from the author's previous papers (filePath/learnDir) → JSON for writing_audit's styleProfile |
+| `writing_journal_profile` | v1.4: distill a target-journal writing profile from representative papers (filePath/learnDir) → JSON for writing_audit's journalProfile |
 
 ### Real output demo
 

@@ -23,7 +23,7 @@
  * All rules are local regex/statistics — zero network, zero LLM calls.
  */
 /** 插件版本（单点定义：state 标记、工具描述、规则速查共用，避免多处硬编码漂移） */
-export const PLUGIN_VERSION = '1.3.0';
+export const PLUGIN_VERSION = '1.6.1';
 /** 语言适应的词/字计数（v0.3.1：不要用英文 whitespace-word 衡量中文） */
 export function countLexicalUnits(text) {
     // 中文字符单独计数（无空格），其余按空白切词
@@ -169,6 +169,450 @@ export function computeStyleProfile(text) {
         longSentenceRatio: lens.length > 0 ? round2(lens.filter((n) => n > LONG_SENTENCE_LIMIT).length / lens.length) : 0,
         paragraphLengthStd: round2(pStd),
         paragraphLengthCV: pMean > 0 ? round2(pStd / pMean) : 0,
+    };
+}
+const round2 = (n) => Math.round(n * 100) / 100;
+function computeDistribution(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const count = sorted.length;
+    if (count === 0)
+        return { count: 0, mean: 0, median: 0, p10: 0, p90: 0, std: 0 };
+    const mean = sorted.reduce((a, b) => a + b, 0) / count;
+    const pct = (q) => {
+        if (count === 1)
+            return sorted[0];
+        const pos = Math.min(count - 1, Math.floor(q * count));
+        return sorted[pos];
+    };
+    return {
+        count,
+        mean: round2(mean),
+        median: round2(medianOf(sorted)),
+        p10: round2(pct(0.1)),
+        p90: round2(pct(0.9)),
+        std: round2(stdOf(sorted)),
+    };
+}
+const JOURNAL_HEDGE_RE = /\b(?:may|might|could|possibly|potentially|perhaps)\b/gi;
+const JOURNAL_CAUSAL_RE = /\b(?:causes?|caused?|leads? to|resulted? in|contributes? to|affects?|affect|predicts?|associated with)\b/gi;
+const JOURNAL_EVIDENCE_RE = /\b(?:suggest|suggests|suggested|indicate|indicates|indicated|support|supports|supported|show|shows|showed|demonstrate|demonstrates|demonstrated|establish|establishes|established|confirm|confirms|confirmed|prove|proves|proved)\b/gi;
+const JOURNAL_FIRST_PERSON_RE = /\b(?:we|our|I)\b/gi;
+const JOURNAL_FIRST_PERSON_SENTENCE_RE = /\b(?:we|our|I)\b/i;
+const JOURNAL_PASSIVE_RE = /\b(?:is|are|was|were|been|being)\s+(?:\w+ed|shown|found|given|seen|known|taken|made|used|considered|observed|measured|performed|conducted|calculated|estimated|simulated|modeled|modelled|reported|detected|described|discussed|presented)\b/gi;
+const JOURNAL_PASSIVE_SENTENCE_RE = /\b(?:is|are|was|were|been|being)\s+(?:\w+ed|shown|found|given|seen|known|taken|made|used|considered|observed|measured|performed|conducted|calculated|estimated|simulated|modeled|modelled|reported|detected|described|discussed|presented)\b/i;
+const JOURNAL_CITATION_RE = /\\cite(?:\[[^\]]*\])?\{[^{}]*\}|\b(?:Figure|Table|Fig\.?)\s*\d+\b|\[\d+(?:[,-]\d+)*\]|\([^)]*(?:et al\.|\d{4})[^)]*\)/gi;
+const JOURNAL_BIBLIOGRAPHIC_CITATION_RE = /\\cite(?:\[[^\]]*\])?\{[^{}]*\}|\[\d+(?:[,-]\d+)*\]|\([^)]*(?:et al\.|\d{4})[^)]*\)/gi;
+const JOURNAL_FIGURE_TABLE_REFERENCE_RE = /\b(?:Figure|Table|Fig\.?)\s*\d+\b/gi;
+function canonicalSectionName(name) {
+    const n = name.trim().toLowerCase().replace(/&/g, 'and');
+    if (n === 'method' || n === 'methods' || n === 'methodology' ||
+        n === 'materials and methods' || n === 'materials and method' ||
+        n === 'material and methods' || n === 'methods and materials' ||
+        n === 'experimental methods' || n === 'experimental setup' ||
+        n === 'model' || n === 'modeling' || n === 'modelling' ||
+        n === 'numerical model' || n === 'numerical modeling' || n === 'numerical modelling')
+        return 'methods';
+    if (n === 'conclusion' || n === 'conclusions' || n === 'summary' || n === 'concluding remarks')
+        return 'conclusion';
+    if (n === 'result' || n === 'findings')
+        return 'results';
+    if (n === 'results and discussion' || n === 'results & discussion' || n === 'results and discussions')
+        return 'results_discussion';
+    if (n === 'background' || n === 'introduction and background' || n === 'introduction and motivation')
+        return 'introduction';
+    return n;
+}
+/** v1.6：轻量 rhetorical move 检测（零 LLM，按句匹配模式，返回去重后的 move 序列） */
+export function detectRhetoricalMoves(text, sectionName) {
+    const section = (sectionName ?? '').toLowerCase();
+    const moves = [];
+    const pushMove = (move) => {
+        if (moves[moves.length - 1] !== move)
+            moves.push(move);
+    };
+    const sentences = splitSentences(text);
+    const isIntro = section.includes('introduction') || section.includes('background');
+    const isDiscussion = section.includes('discussion') || section.includes('conclusion');
+    const isResults = section.includes('result');
+    const isMethods = section.includes('method');
+    for (const s of sentences) {
+        if (isIntro) {
+            if (/\b(?:in recent years|over the past|has become|is (?:important|critical|essential)|plays? a (?:key|critical|important|major) role|background|随着|近年来|在过去的|变得|具有重要|至关重要|背景)\b/i.test(s))
+                pushMove('background');
+            else if (/\b(?:however|yet|remains? (?:unclear|poorly understood|unknown)|little is known|few studies|no studies|a gap|limited research|缺乏|尚未|仍然|不足|鲜有|少有|空白)\b/i.test(s))
+                pushMove('gap');
+            else if (/\b(?:this (?:study|paper|work|review) (?:aims?|presents?|proposes?|investigates?|reviews?)|we aim|our aim|the purpose|本文|本研究|我们(?:旨在|提出|采用|分析|研究)|目的是)\b/i.test(s))
+                pushMove('objective');
+            else if (/\b(?:we (?:used|applied|developed|proposed|performed)|this (?:study|paper) (?:uses|applies|develops)|本文(?:采用|使用|提出|基于)|我们(?:使用|采用|提出|构建))\b/i.test(s))
+                pushMove('method');
+        }
+        else if (isDiscussion) {
+            if (/\b(?:in summary|in conclusion|taken together|overall|综上所述|总的来说|总之)\b/i.test(s))
+                pushMove('summary');
+            else if (/\b(?:suggests?|indicates?|demonstrates?|implies?|shows?|表明|说明|意味着|支持|证实)\b/i.test(s))
+                pushMove('interpretation');
+            else if (/\b(?:limitation|limited|caveat|however|should be interpreted|局限|不足|限制|需要谨慎)\b/i.test(s))
+                pushMove('limitation');
+            else if (/\b(?:implication|practical (?:implications?|significance)|important for|意义|启示|对.*具有重要意义)\b/i.test(s))
+                pushMove('implication');
+            else if (/\b(?:future (?:work|research|studies)|further (?:work|research|studies)|next step|未来|下一步|后续)\b/i.test(s))
+                pushMove('future');
+        }
+        else if (isResults) {
+            if (/\b(?:we (?:found|observed)|the results (?:show|indicate|demonstrate)|results? (?:shows?|indicate|demonstrate)|发现|结果表明|结果显示)\b/i.test(s))
+                pushMove('finding');
+            else if (/\b(?:compared with|compared to|in contrast|versus|与.*相比|对比|而)\b/i.test(s))
+                pushMove('comparison');
+            else if (/\b(?:surprisingly|unexpectedly|interestingly|值得注意的是|出乎意料)\b/i.test(s))
+                pushMove('unexpected');
+        }
+        else if (isMethods) {
+            if (/\b(?:we (?:used|employed|applied)|this (?:study|work) (?:uses|employs)|本文(?:采用|使用)|实验(?:采用|使用)|方法)\b/i.test(s))
+                pushMove('setup');
+            else if (/\b(?:data|dataset|samples?|materials?|数据|样本|材料)\b/i.test(s))
+                pushMove('data');
+            else if (/\b(?:analysis|analyses|model|simulation|统计|分析|模型|模拟)\b/i.test(s))
+                pushMove('analysis');
+        }
+    }
+    return moves;
+}
+function computeSectionSample(text) {
+    const sentences = splitSentences(text);
+    const sentenceLengths = sentences.map((s) => countWords(s));
+    const paragraphs = text
+        .split(/\n{2,}/)
+        .map((p) => countWords(p.trim()))
+        .filter((n) => n > 0);
+    const words = countWords(text);
+    const perK = (n) => (words > 0 ? round2((n / words) * 1000) : 0);
+    const firstPersonSentenceCount = sentences.filter((s) => JOURNAL_FIRST_PERSON_SENTENCE_RE.test(s)).length;
+    const passiveSentenceCount = sentences.filter((s) => JOURNAL_PASSIVE_SENTENCE_RE.test(s)).length;
+    // v1.5：复用 ClaimSpan 提取 epistemic fingerprint，不再只数 regex 词频
+    const claims = sentences.flatMap((s) => extractClaimSpans(s));
+    const claimCount = claims.length;
+    const ratioOf = (pred) => (claimCount > 0 ? round2(claims.filter(pred).length / claimCount) : 0);
+    return {
+        name: '',
+        words,
+        sentenceLengthMedian: medianOf(sentenceLengths),
+        sentenceLengthStd: stdOf(sentenceLengths),
+        paragraphLengthMedian: medianOf(paragraphs),
+        paragraphLengthStd: stdOf(paragraphs),
+        hedgeDensity: perK((text.match(JOURNAL_HEDGE_RE) ?? []).length),
+        causalForce: perK((text.match(JOURNAL_CAUSAL_RE) ?? []).length),
+        evidentialForce: perK((text.match(JOURNAL_EVIDENCE_RE) ?? []).length),
+        firstPersonSentenceRatio: sentences.length > 0 ? round2(firstPersonSentenceCount / sentences.length) : 0,
+        passiveSentenceRatio: sentences.length > 0 ? round2(passiveSentenceCount / sentences.length) : 0,
+        citationDensity: perK((text.match(JOURNAL_CITATION_RE) ?? []).length),
+        bibliographicCitationDensity: perK((text.match(JOURNAL_BIBLIOGRAPHIC_CITATION_RE) ?? []).length),
+        figureTableReferenceDensity: perK((text.match(JOURNAL_FIGURE_TABLE_REFERENCE_RE) ?? []).length),
+        claimCount,
+        claimDensity: perK(claimCount),
+        highCausalRatio: ratioOf((c) => c.causalLevel >= 4),
+        hedgedClaimRatio: ratioOf((c) => c.hedged),
+        strongEvidentialRatio: ratioOf((c) => c.evidentialLevel >= 4),
+        scopeQualifiedRatio: ratioOf((c) => c.scopeMarkers.length > 0),
+        nullFindingRatio: ratioOf((c) => c.nullMarkers.length > 0 || c.negationMarkers.length > 0),
+    };
+}
+function aggregateSectionProfiles(samples) {
+    const groups = new Map();
+    for (const s of samples) {
+        const key = s.name.toLowerCase();
+        let g = groups.get(key);
+        if (!g) {
+            g = { docs: new Set(), samples: [] };
+            groups.set(key, g);
+        }
+        g.docs.add(s.docIndex);
+        g.samples.push(s);
+    }
+    const out = [];
+    for (const [name, g] of groups) {
+        out.push({
+            name,
+            articleCount: g.docs.size,
+            sentenceLength: computeDistribution(g.samples.map((s) => s.sentenceLengthMedian)),
+            paragraphLength: computeDistribution(g.samples.map((s) => s.paragraphLengthMedian)),
+            hedgeDensity: computeDistribution(g.samples.map((s) => s.hedgeDensity)),
+            causalForce: computeDistribution(g.samples.map((s) => s.causalForce)),
+            evidentialForce: computeDistribution(g.samples.map((s) => s.evidentialForce)),
+            firstPersonUsage: computeDistribution(g.samples.map((s) => s.firstPersonSentenceRatio)),
+            passiveVoice: computeDistribution(g.samples.map((s) => s.passiveSentenceRatio)),
+            citationDensity: computeDistribution(g.samples.map((s) => s.citationDensity)),
+            bibliographicCitationDensity: computeDistribution(g.samples.map((s) => s.bibliographicCitationDensity)),
+            figureTableReferenceDensity: computeDistribution(g.samples.map((s) => s.figureTableReferenceDensity)),
+            claimCount: computeDistribution(g.samples.map((s) => s.claimCount)),
+            claimDensity: computeDistribution(g.samples.map((s) => s.claimDensity)),
+            highCausalRatio: computeDistribution(g.samples.map((s) => s.highCausalRatio)),
+            hedgedClaimRatio: computeDistribution(g.samples.map((s) => s.hedgedClaimRatio)),
+            strongEvidentialRatio: computeDistribution(g.samples.map((s) => s.strongEvidentialRatio)),
+            scopeQualifiedRatio: computeDistribution(g.samples.map((s) => s.scopeQualifiedRatio)),
+            nullFindingRatio: computeDistribution(g.samples.map((s) => s.nullFindingRatio)),
+        });
+    }
+    return out;
+}
+function aggregateGlobalSamples(samples) {
+    return {
+        sentenceStyle: {
+            sentenceLength: computeDistribution(samples.map((s) => s.sentenceLengthMedian)),
+            sentenceLengthVariance: computeDistribution(samples.map((s) => s.sentenceLengthStd)),
+            passiveVoice: computeDistribution(samples.map((s) => s.passiveSentenceRatio)),
+            firstPersonUsage: computeDistribution(samples.map((s) => s.firstPersonSentenceRatio)),
+        },
+        paragraphStyle: {
+            paragraphLength: computeDistribution(samples.map((s) => s.paragraphLengthMedian)),
+            paragraphVariance: computeDistribution(samples.map((s) => s.paragraphLengthStd)),
+        },
+        epistemics: {
+            causalForce: computeDistribution(samples.map((s) => s.causalForce)),
+            evidentialForce: computeDistribution(samples.map((s) => s.evidentialForce)),
+            hedgeDensity: computeDistribution(samples.map((s) => s.hedgeDensity)),
+            claimCount: computeDistribution(samples.map((s) => s.claimCount)),
+            claimDensity: computeDistribution(samples.map((s) => s.claimDensity)),
+            highCausalRatio: computeDistribution(samples.map((s) => s.highCausalRatio)),
+            hedgedClaimRatio: computeDistribution(samples.map((s) => s.hedgedClaimRatio)),
+            strongEvidentialRatio: computeDistribution(samples.map((s) => s.strongEvidentialRatio)),
+            scopeQualifiedRatio: computeDistribution(samples.map((s) => s.scopeQualifiedRatio)),
+            nullFindingRatio: computeDistribution(samples.map((s) => s.nullFindingRatio)),
+        },
+        citations: {
+            density: computeDistribution(samples.map((s) => s.citationDensity)),
+            bibliographicDensity: computeDistribution(samples.map((s) => s.bibliographicCitationDensity)),
+            figureTableDensity: computeDistribution(samples.map((s) => s.figureTableReferenceDensity)),
+            sectionDistribution: {},
+        },
+    };
+}
+function computeRhetoricProfile(observations) {
+    const sectionGroups = new Map();
+    const allMoveCounts = new Map();
+    for (const obs of observations) {
+        let g = sectionGroups.get(obs.section);
+        if (!g) {
+            g = { docs: new Set(), sequences: [] };
+            sectionGroups.set(obs.section, g);
+        }
+        g.docs.add(obs.docIndex);
+        g.sequences.push(obs.moves);
+        for (const m of new Set(obs.moves))
+            allMoveCounts.set(m, (allMoveCounts.get(m) ?? 0) + 1);
+    }
+    const sectionMoves = {};
+    const transitionsMap = new Map();
+    const fromCounts = new Map();
+    for (const [section, g] of sectionGroups) {
+        const counts = new Map();
+        for (const seq of g.sequences) {
+            for (const m of new Set(seq))
+                counts.set(m, (counts.get(m) ?? 0) + 1);
+            for (let i = 0; i + 1 < seq.length; i++) {
+                const from = seq[i];
+                const to = seq[i + 1];
+                if (!transitionsMap.has(from))
+                    transitionsMap.set(from, new Map());
+                transitionsMap.get(from).set(to, (transitionsMap.get(from).get(to) ?? 0) + 1);
+                fromCounts.set(from, (fromCounts.get(from) ?? 0) + 1);
+            }
+        }
+        sectionMoves[section] = [...counts.entries()]
+            .map(([move, count]) => ({ move, frequency: g.docs.size > 0 ? round2(count / g.docs.size) : 0 }))
+            .sort((a, b) => b.frequency - a.frequency);
+    }
+    const transitions = [];
+    for (const [from, tos] of transitionsMap) {
+        const total = fromCounts.get(from) ?? 0;
+        for (const [to, count] of tos) {
+            transitions.push({ from, to, probability: total > 0 ? round2(count / total) : 0 });
+        }
+    }
+    const moves = [...allMoveCounts.entries()]
+        .map(([move, count]) => ({ move, frequency: observations.length > 0 ? round2(count / observations.length) : 0 }))
+        .sort((a, b) => b.frequency - a.frequency);
+    return { moves, sectionMoves, transitions };
+}
+/**
+ * v1.4.1 Corpus-aware Journal Distillation：
+ * 每篇论文独立 preprocess / detectSections，再按 canonical section 跨论文聚合。
+ * 输出只包含抽象统计特征，不保存论文原句。
+ */
+export function computeJournalProfileFromDocuments(documents, opts) {
+    const sectionSamples = [];
+    const globalSamples = [];
+    const rhetoricObservations = [];
+    let parsed = 0;
+    documents.forEach((doc, docIndex) => {
+        try {
+            const view = preprocess(doc.text);
+            const sections = detectSections(view);
+            if (sections.length === 0) {
+                const s = computeSectionSample(view.prose);
+                s.name = canonicalSectionName('unknown');
+                s.docIndex = docIndex;
+                sectionSamples.push(s);
+                rhetoricObservations.push({ section: s.name, moves: detectRhetoricalMoves(view.prose, s.name), docIndex });
+            }
+            else {
+                for (const sec of sections) {
+                    const s = computeSectionSample(sec.text);
+                    s.name = canonicalSectionName(sec.name);
+                    s.docIndex = docIndex;
+                    sectionSamples.push(s);
+                    rhetoricObservations.push({ section: s.name, moves: detectRhetoricalMoves(sec.text, sec.name), docIndex });
+                }
+            }
+            globalSamples.push(computeSectionSample(view.prose));
+            parsed += 1;
+        }
+        catch {
+            // 单篇解析失败跳过，不影响其他论文
+        }
+    });
+    const sectionProfiles = aggregateSectionProfiles(sectionSamples);
+    const sectionLengths = sectionSamples.map((s) => s.words);
+    const global = aggregateGlobalSamples(globalSamples);
+    return {
+        metadata: {
+            journal: opts?.journal ?? 'custom-journal',
+            articleType: opts?.articleType,
+            discipline: opts?.discipline,
+            sampleSize: opts?.sampleSize ?? parsed,
+            profileVersion: '1.6.1',
+            corpusDate: new Date().toISOString().slice(0, 10),
+        },
+        structure: {
+            sections: sectionProfiles,
+            sectionLengthDistribution: computeDistribution(sectionLengths),
+        },
+        rhetoric: computeRhetoricProfile(rhetoricObservations),
+        epistemics: global.epistemics,
+        sentenceStyle: global.sentenceStyle,
+        paragraphStyle: global.paragraphStyle,
+        citations: global.citations,
+    };
+}
+/**
+ * 从目标期刊代表论文语料蒸馏 Journal Profile（单文档兼容入口）。
+ * 输入可以是一篇或多篇代表论文的拼接文本；推荐多篇时改用 computeJournalProfileFromDocuments。
+ */
+export function computeJournalProfile(text, opts) {
+    return computeJournalProfileFromDocuments([{ text }], opts);
+}
+function journalMetricScore(current, dist, opts) {
+    if (!dist || dist.count < 1)
+        return null;
+    const expected = dist.median;
+    const spread = Math.max(dist.p90 - dist.p10, Math.abs(expected) * 0.3, opts?.minSpread ?? 1);
+    const diff = Math.abs(current - expected);
+    const z = diff / spread;
+    const score = Math.max(0, Math.round(100 - z * 25));
+    const status = score >= 80 ? 'ok' : score >= 55 ? 'warn' : 'diff';
+    return { score, status };
+}
+function journalFitConfidence(n) {
+    if (!n || n < 3)
+        return 'very_low';
+    if (n < 8)
+        return 'low';
+    if (n < 20)
+        return 'medium';
+    return 'high';
+}
+function lcsLength(a, b) {
+    const n = a.length;
+    const m = b.length;
+    const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+    for (let i = 1; i <= n; i++) {
+        for (let j = 1; j <= m; j++) {
+            dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+    }
+    return dp[n][m];
+}
+/** 将当前稿件与目标期刊 Profile 对比，输出 section-level Journal Fit 报告 */
+export function auditJournalFit(text, profile) {
+    const view = preprocess(text);
+    const sections = detectSections(view);
+    const profileSections = new Map(profile.structure.sections.map((s) => [s.name.toLowerCase(), s]));
+    const warnings = [];
+    const fitSections = [];
+    const corpusSize = profile.metadata.sampleSize ?? Math.max(0, ...profile.structure.sections.map((s) => s.articleCount));
+    for (const sec of sections) {
+        const name = canonicalSectionName(sec.name);
+        const cur = computeSectionSample(sec.text);
+        cur.name = name;
+        const prof = profileSections.get(name);
+        if (!prof) {
+            warnings.push(`当前稿件章节 "${sec.name}" 未出现在目标期刊 Profile 中（Profile 章节：${[...profileSections.keys()].join(' / ') || '无'}）`);
+            continue;
+        }
+        const metrics = [];
+        const addMetric = (metric, current, dist, minSpread) => {
+            const r = journalMetricScore(current, dist, minSpread === undefined ? undefined : { minSpread });
+            if (!r)
+                return;
+            metrics.push({
+                metric,
+                current: round2(current),
+                expected: dist.median,
+                p10: dist.p10,
+                p90: dist.p90,
+                score: r.score,
+                status: r.status,
+            });
+        };
+        addMetric('句长中位数', cur.sentenceLengthMedian, prof.sentenceLength);
+        addMetric('段长中位数', cur.paragraphLengthMedian, prof.paragraphLength);
+        addMetric('第一人称句子比例', cur.firstPersonSentenceRatio, prof.firstPersonUsage, 0.05);
+        addMetric('被动语态句子比例', cur.passiveSentenceRatio, prof.passiveVoice, 0.05);
+        addMetric('文献引用密度', cur.bibliographicCitationDensity, prof.bibliographicCitationDensity);
+        addMetric('图表引用密度', cur.figureTableReferenceDensity, prof.figureTableReferenceDensity);
+        // v1.5 Epistemic Journal Fingerprint（v1.6.1 起主分数不再使用旧 regex hedge/causal/evidence 密度）
+        addMetric('claim 密度', cur.claimDensity, prof.claimDensity);
+        addMetric('高因果主张比例', cur.highCausalRatio, prof.highCausalRatio, 0.05);
+        addMetric('hedge 主张比例', cur.hedgedClaimRatio, prof.hedgedClaimRatio, 0.05);
+        addMetric('强证据主张比例', cur.strongEvidentialRatio, prof.strongEvidentialRatio, 0.05);
+        addMetric('scope 限定主张比例', cur.scopeQualifiedRatio, prof.scopeQualifiedRatio, 0.05);
+        addMetric('零结果/否定主张比例', cur.nullFindingRatio, prof.nullFindingRatio, 0.05);
+        // v1.6 Rhetorical Moves
+        const currentMoves = detectRhetoricalMoves(sec.text, sec.name);
+        const profileMoves = profile.rhetoric.sectionMoves?.[name] ?? [];
+        const expectedMoves = profileMoves.filter((m) => m.frequency >= 0.3).map((m) => m.move);
+        const moveCoverage = expectedMoves.length > 0
+            ? expectedMoves.filter((m) => currentMoves.includes(m)).length / expectedMoves.length
+            : 1;
+        const orderSim = (expectedMoves.length > 0 || currentMoves.length > 0)
+            ? lcsLength(currentMoves, expectedMoves) / Math.max(expectedMoves.length, currentMoves.length)
+            : 1;
+        const moveCoverageScore = Math.round(moveCoverage * 100);
+        const orderScore = Math.round(orderSim * 100);
+        metrics.push({
+            metric: 'rhetorical move coverage',
+            current: round2(moveCoverage),
+            expected: 1,
+            score: moveCoverageScore,
+            status: moveCoverageScore >= 80 ? 'ok' : moveCoverageScore >= 55 ? 'warn' : 'diff',
+        });
+        metrics.push({
+            metric: 'rhetorical order fit',
+            current: round2(orderSim),
+            expected: 1,
+            score: orderScore,
+            status: orderScore >= 80 ? 'ok' : orderScore >= 55 ? 'warn' : 'diff',
+        });
+        const score = metrics.length > 0 ? Math.round(metrics.reduce((a, m) => a + m.score, 0) / metrics.length) : 0;
+        fitSections.push({ name: sec.name, score, metrics, articleCount: prof.articleCount });
+    }
+    const overall = fitSections.length > 0 ? Math.round(fitSections.reduce((a, s) => a + s.score, 0) / fitSections.length) : 0;
+    return {
+        journal: profile.metadata.journal,
+        overall,
+        confidence: journalFitConfidence(corpusSize),
+        corpusSize,
+        sections: fitSections,
+        warnings,
     };
 }
 const SCHOLARSHIP_EXTRACTORS = [
@@ -444,8 +888,20 @@ export function extractClaimSpans(sentence) {
         const nullMarkers = clause.match(NULL_RESULT_RE) ?? [];
         const scopeMarkers = clause.match(SCOPE_RE) ?? [];
         const evidenceStatusMarkers = clause.match(EVIDENCE_STATUS_RE) ?? [];
+        const hasEpistemic = causalLevel >= 0 || evidentialLevel > 0 || hedged ||
+            negationMarkers.length > 0 || nullMarkers.length > 0 || scopeMarkers.length > 0 || evidenceStatusMarkers.length > 0;
+        let spanKind = 'unknown';
+        if (hasEpistemic) {
+            spanKind = 'claim';
+        }
+        else if (/\b(?:used|measured|collected|performed|conducted|applied|employed|implemented|dried|heated|acquired|recorded|obtained|calculated|estimated|simulated|modeled|modelled)\b/i.test(clause)) {
+            spanKind = 'procedural';
+        }
+        else if (/\b(?:figure|table|architecture|schematic|workflow|overview|diagram|example|samples|data)\b/i.test(clause)) {
+            spanKind = 'descriptive';
+        }
         spans.push({
-            clause, causalLevel, evidentialLevel, hedged, hedgeMarkers,
+            clause, spanKind, causalLevel, evidentialLevel, hedged, hedgeMarkers,
             causalMarkers, evidentialMarkers, negationMarkers, nullMarkers, scopeMarkers, evidenceStatusMarkers,
         });
     }
@@ -1658,6 +2114,20 @@ function claimAnchor(clause) {
             continue;
         content.push(t);
     }
+    // v1.4：中文 Claim Anchor——用 CJK bigram 补充 subject/content token，
+    // 让中文 scientific revision 也能区分不同 claim 上的相同漂移（模型A vs 治疗组）。
+    const cjk = clause.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) ?? [];
+    if (cjk.length === 1) {
+        if (!content.includes(cjk[0]))
+            content.push(cjk[0]);
+    }
+    else {
+        for (let i = 0; i + 1 < cjk.length && content.length < 4; i++) {
+            const bigram = cjk[i] + cjk[i + 1];
+            if (!content.includes(bigram))
+                content.push(bigram);
+        }
+    }
     const parts = [subj, ...content].filter(Boolean);
     return parts.join('|') || '?';
 }
@@ -1882,9 +2352,10 @@ export function preprocess(text) {
 }
 /** 常见论文章节名（用于 section detection） */
 const SECTION_NAMES = [
-    'abstract', 'introduction', 'methods', 'methodology', 'materials and methods', 'results',
+    'abstract', 'introduction', 'methods', 'methodology', 'materials and methods',
+    'results and discussion', 'results & discussion', 'results',
     'discussion', 'conclusion', 'conclusions', 'limitations', 'related work',
-    '摘要', '引言', '方法', '材料与方法', '结果', '讨论', '结论', '局限性', '相关工作',
+    '摘要', '引言', '方法', '材料与方法', '结果与讨论', '结果', '讨论', '结论', '局限性', '相关工作',
 ];
 /**
  * v0.4 section detection：把 heading 段映射到章节，正文按章节归组。
@@ -3214,6 +3685,8 @@ export function auditText(text, opts) {
             }
         }
     }
+    // v1.4：Journal Fit（目标期刊写作契合度）——与 integrity/style 独立输出，不混入 hits
+    const journalFit = opts?.journalProfile ? auditJournalFit(text, opts.journalProfile) : undefined;
     const byCategory = {
         process_residue: 0,
         claim_calibration: 0,
@@ -3250,6 +3723,7 @@ export function auditText(text, opts) {
         stats,
         hits,
         integrity,
+        journalFit,
     };
 }
 // ---------------------------------------------------------------------------
@@ -3272,6 +3746,26 @@ export function formatReport(report, opts) {
         lines.push(`  ${i.negationDrift === 0 ? '✓' : '✗'} 否定/零结果 ${i.negationDrift === 0 ? '不变' : `变化 ${i.negationDrift} 处`}`);
         lines.push(`  ${i.scopeDrift === 0 ? '✓' : '⚠'} scope 边界 ${i.scopeDrift === 0 ? '保持' : `消失 ${i.scopeDrift} 处`}`);
         lines.push(`  ${i.evidenceStatusDrift === 0 ? '✓' : '⚠'} 证据状态 ${i.evidenceStatusDrift === 0 ? '保持' : `变化 ${i.evidenceStatusDrift} 处`}`);
+        lines.push('');
+    }
+    // v1.4：Journal Fit 块（提供 journalProfile 时显示；0 hits 也显示）
+    if (report.journalFit) {
+        const jf = report.journalFit;
+        lines.push('');
+        lines.push(`期刊写作契合度（Journal Fit · ${jf.journal}）：${jf.sections.length === 0 ? '未匹配到章节' : `总分 ${jf.overall}%`}（Profile Confidence: ${jf.confidence.toUpperCase()}，corpus ${jf.corpusSize} 篇）`);
+        for (const s of jf.sections) {
+            const coverage = s.articleCount !== undefined ? `（n=${s.articleCount}）` : '';
+            lines.push(`  ${s.name} ${s.score}%${coverage}`);
+            if (opts?.verbose) {
+                for (const m of s.metrics) {
+                    const flag = m.status === 'ok' ? '✓' : m.status === 'warn' ? '⚠' : '✗';
+                    const range = m.p10 !== undefined && m.p90 !== undefined ? `（P10-P90: ${m.p10}-${m.p90}）` : '';
+                    lines.push(`    ${flag} ${m.metric}：当前 ${m.current} vs 目标中位 ${m.expected}${range}（score ${m.score}）`);
+                }
+            }
+        }
+        for (const w of jf.warnings)
+            lines.push(`  ⚠ ${w}`);
         lines.push('');
     }
     if (hits.length === 0)
@@ -3390,6 +3884,13 @@ export function rulesBrief() {
         '- 总结套话位置感知（summary-cliche-positional）：不新增词表——"综上所述/in conclusion" 在每个小节末尾反复出现才报（位置驱动，≥2 个小节末尾）',
         '- 本地引用完整性（local-citation-integrity）：同目录 .bib 存在时检查 \\cite key 是否真实存在、\\ref ↔ \\label 是否对应、bib 条目是否缺 title/year/author、同一 DOI 是否对应多个 key——零网络确定性检查；"该文献是否支持这句话"留在插件边界外',
         '- adaptive threshold 原则：有作者 profile → 用历史分布做自适应阈值；无 profile → conservative heuristic，不做固定次数一刀切',
+        '',
+        '## 七·v1.4 期刊写作引擎（Journal Engine）',
+        '- 目标不是"模仿 Nature 风格"，而是从目标期刊 author guidelines + 代表论文中提取可复用的统计规律（Journal Writing Profile）',
+        '- Profile 只保存抽象分布（句长/段长/hedge 密度/因果力/第一人称/被动语态/引用密度），不保存论文原句',
+        '- 用 writing_journal_profile 从代表论文语料生成 profile；用 writing_audit(journalProfile=JSON) 对当前稿件做 section-level Journal Fit',
+        '- Journal Fit 输出每个章节的契合度（如 Results 61%），并列出主要差异（句长/解释密度/因果语言/段落节奏）',
+        '- 优先级：Scientific Invariant > Epistemic Safety > Journal Requirement > Journal Norm > Journal Style——期刊风格永远不能覆盖科学完整性',
         '',
         '## 八、发布会原则（扬长避短）',
         '- 只围绕优势组织论文；不写工作汇报、不主动示弱、不替审稿人攻击自己',

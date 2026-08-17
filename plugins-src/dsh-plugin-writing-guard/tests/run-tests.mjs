@@ -4,8 +4,10 @@
  * 目标：每条核心规则至少有一个 true-positive 和一个 true-negative 断言。
  * 运行：node tests/run-tests.mjs
  */
-import { auditText, detectDocumentProfile, filterReport, hitFingerprint, diffAudit, serializeFingerprints, deserializeFingerprints, diffScholarship, computeStyleProfile, splitSentences, cosineSimilarity, tokenizeForSimilarity, extractEpistemicMarkers, diffEpistemic, alignSentences, formatReport, extractClaimSpans, simTier, analyzeParagraphRhythm, analyzeSentenceRhythm, scaffoldSignature, findRepeatedScaffolds, findPunctuationOverloads, findCoinedFrameworks, findGenericClaims, parseBibText, checkCitationIntegrity } from '../lib/rules.js'
+import { auditText, detectDocumentProfile, filterReport, hitFingerprint, diffAudit, serializeFingerprints, deserializeFingerprints, diffScholarship, computeStyleProfile, computeJournalProfile, computeJournalProfileFromDocuments, auditJournalFit, detectRhetoricalMoves, splitSentences, cosineSimilarity, tokenizeForSimilarity, extractEpistemicMarkers, diffEpistemic, alignSentences, formatReport, extractClaimSpans, simTier, analyzeParagraphRhythm, analyzeSentenceRhythm, scaffoldSignature, findRepeatedScaffolds, findPunctuationOverloads, findCoinedFrameworks, findGenericClaims, parseBibText, checkCitationIntegrity } from '../lib/rules.js'
 import { isPaperFile, baselineByteSize, pruneBaselines } from '../lib/index.js'
+import fs from 'node:fs'
+import path from 'node:path'
 
 let pass = 0
 let fail = 0
@@ -1643,6 +1645,195 @@ console.log('=== 88. v1.3 summary-cliche-positional（总结套话位置感知�
   const r2 = auditText(tn, { profile: 'manuscript' })
   check('summary cliche positional TN (single occurrence)', !hasRule(r2, 'summary-cliche-positional'), JSON.stringify(r2.hits.map((h) => h.ruleId)))
 }
+
+console.log('=== 89. v1.4 Journal Profile 蒸馏（computeJournalProfile）===')
+{
+  const corpus = [
+    '# Abstract',
+    '',
+    'This study investigates the effect of temperature on drying. The experiment was performed in a microfluidic device. We observed a 12% increase in rate.',
+    '# Introduction',
+    '',
+    'Drying in porous media is important. Several studies have examined this process. However, a gap remains in understanding salt precipitation. We therefore aim to quantify the effect.',
+    '# Methods',
+    '',
+    'We used a microfluidic chip. The chip was heated at 25, 50, and 75 °C. Each condition was repeated three times. The drying rate was measured by image analysis.',
+    '# Results',
+    '',
+    'Higher temperatures significantly increased the drying rate. The rate rose from 0.5 to 1.2 mL/h. These results demonstrate a clear thermal effect.',
+    '# Discussion',
+    '',
+    'Our findings suggest that temperature is a key control. The observed increase may be related to enhanced vapor transport. Further studies should examine pore-scale salt precipitation.',
+  ].join('\n')
+  const profile = computeJournalProfile(corpus, { journal: 'Test Journal', articleType: 'research-article' })
+  check('journal profile metadata', profile.metadata.journal === 'Test Journal' && profile.metadata.profileVersion === '1.6.1' && profile.structure.sections.length >= 4)
+  check('journal profile has sentence distribution', !!profile.sentenceStyle.sentenceLength && profile.sentenceStyle.sentenceLength.count > 0)
+  check('journal profile has section details', profile.structure.sections.some((s) => s.name === 'results' && s.sentenceLength.count > 0))
+  check('journal profile preserves only statistics', !JSON.stringify(profile).includes('This study investigates'))
+}
+
+console.log('=== 90. v1.4 Journal Fit 审计（auditJournalFit / writing_audit journalProfile）===')
+{
+  const corpus = [
+    '# Abstract',
+    '',
+    'This study investigates the effect of temperature on drying. The experiment was performed in a microfluidic device. We observed a 12% increase in rate.',
+    '# Introduction',
+    '',
+    'Drying in porous media is important. Several studies have examined this process. However, a gap remains in understanding salt precipitation. We therefore aim to quantify the effect.',
+    '# Methods',
+    '',
+    'We used a microfluidic chip. The chip was heated at 25, 50, and 75 °C. Each condition was repeated three times. The drying rate was measured by image analysis.',
+    '# Results',
+    '',
+    'Higher temperatures significantly increased the drying rate. The rate rose from 0.5 to 1.2 mL/h. These results demonstrate a clear thermal effect.',
+    '# Discussion',
+    '',
+    'Our findings suggest that temperature is a key control. The observed increase may be related to enhanced vapor transport. Further studies should examine pore-scale salt precipitation.',
+  ].join('\n')
+  const profile = computeJournalProfile(corpus, { journal: 'Test Journal' })
+  const manuscript = corpus
+  const report = auditText(manuscript, { profile: 'manuscript', journalProfile: profile })
+  check('journal fit attached to report', !!report.journalFit && report.journalFit.journal === 'Test Journal' && report.journalFit.sections.length > 0)
+  check('journal fit scores in range', report.journalFit.sections.every((s) => s.score >= 0 && s.score <= 100))
+  check('journal fit format includes block', formatReport(report, { verbose: true }).includes('期刊写作契合度（Journal Fit · Test Journal）'))
+  check('journal fit has confidence/corpusSize', !!report.journalFit && !!report.journalFit.confidence && report.journalFit.corpusSize > 0, JSON.stringify(report.journalFit && { confidence: report.journalFit.confidence, corpusSize: report.journalFit.corpusSize }))
+
+  const withLimits = manuscript + '\n\n# Limitations\n\nThis study has some limitations. The sample size is small. Further work is needed.'
+  const report2 = auditText(withLimits, { profile: 'manuscript', journalProfile: profile })
+  check('journal fit warns on missing profile section', report2.journalFit?.warnings.some((w) => w.toLowerCase().includes('limitations')) ?? false, JSON.stringify(report2.journalFit?.warnings))
+}
+
+console.log('=== 91. v1.4.1 corpus-aware aggregation（多篇同名校验）===')
+{
+  const mk = (n) => `# Results\n\n${Array(n).fill('word').join(' ')}.`
+  const docs = [10, 20, 30].map((n) => ({ text: mk(n), sourceId: `paper-${n}` }))
+  const profile = computeJournalProfileFromDocuments(docs, { journal: 'Corpus Test' })
+  const results = profile.structure.sections.find((s) => s.name === 'results')
+  check('corpus results count/articleCount', results && results.articleCount === 3 && results.sentenceLength.count === 3, JSON.stringify(results))
+  check('corpus results median is aggregate (20, not 30)', results && results.sentenceLength.median === 20, JSON.stringify(results?.sentenceLength))
+  check('corpus sampleSize', profile.metadata.sampleSize === 3, JSON.stringify(profile.metadata.sampleSize))
+  check('corpus profile has split citation distributions', !!results && !!results.bibliographicCitationDensity && !!results.figureTableReferenceDensity && results.bibliographicCitationDensity.count === 3 && results.figureTableReferenceDensity.count === 3, JSON.stringify(results && { bib: results.bibliographicCitationDensity, fig: results.figureTableReferenceDensity }))
+  check('corpus profile has epistemic fingerprint distributions', !!results && !!results.claimCount && results.claimCount.count === 3 && !!results.highCausalRatio && !!results.hedgedClaimRatio && !!results.strongEvidentialRatio && !!results.scopeQualifiedRatio && !!results.nullFindingRatio, JSON.stringify(results && { claimCount: results.claimCount, highCausalRatio: results.highCausalRatio }))
+}
+
+console.log('=== 92. v1.4.2 real-corpus smoke test（CI 可跳过，本地 ESR/source.md 或 WRITING_GUARD_REAL_CORPUS）===')
+{
+  const esrRoot = 'D:\\裂缝盐析\\00_raw\\ESR论文'
+  const readerRoot = 'D:\\裂缝盐析\\01_literature\\readers'
+  const envCorpus = process.env.WRITING_GUARD_REAL_CORPUS
+
+  const collectMd = (dir, sources, wantSourceMd) => {
+    let entries = []
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name)
+      if (e.isDirectory()) collectMd(full, sources, wantSourceMd)
+      else if (sources.length < 5) {
+        const isMd = /\.md$/i.test(e.name) && !/^readme\.md$/i.test(e.name)
+        const isSource = wantSourceMd ? e.name === 'source.md' : isMd
+        if (isSource) sources.push(full)
+      }
+    }
+  }
+
+  let sources = []
+  if (envCorpus && fs.existsSync(envCorpus)) {
+    collectMd(envCorpus, sources, false)
+  } else {
+    const candidates = [esrRoot, readerRoot].filter((r) => fs.existsSync(r))
+    if (candidates.length === 0) {
+      console.log('SKIP real-corpus smoke test: local corpus unavailable (CI safe)')
+    } else {
+      // 优先 ESR 文件夹中的 md；不足 3 篇则回退到 readers 下的 source.md
+      collectMd(esrRoot, sources, false)
+      if (sources.length < 3) {
+        sources = []
+        collectMd(readerRoot, sources, true)
+      }
+    }
+  }
+
+  if (sources.length === 0) {
+    // 没有本地语料时直接跳过，不让 CI 失败
+    console.log('SKIP real-corpus smoke test: no corpus files found')
+  } else {
+    const docs = sources.slice(0, 5).map((f) => ({ text: fs.readFileSync(f, 'utf8'), sourceId: path.basename(path.dirname(f)) }))
+    check('real-corpus found md files', docs.length >= 3, `found ${docs.length} from ${sources.join(', ')}`)
+    if (docs.length >= 3) {
+      const profile = computeJournalProfileFromDocuments(docs, { journal: 'D-Literature Smoke', sampleSize: docs.length })
+      check('real-corpus sampleSize', profile.metadata.sampleSize === docs.length, JSON.stringify(profile.metadata.sampleSize))
+      check('real-corpus has aggregated sections', profile.structure.sections.length > 0, JSON.stringify(profile.structure.sections.map((s) => s.name)))
+      const results = profile.structure.sections.find((s) => s.name === 'results')
+      check('real-corpus results distribution when present', !results || results.sentenceLength.count > 0, JSON.stringify(results?.sentenceLength))
+    }
+  }
+}
+
+console.log('=== 93. v1.6 Rhetorical Moves（Introduction/Discourse 序列）===')
+{
+  const intro = 'In recent years, CO2 storage has become important. However, little is known about salt precipitation. This study aims to quantify the effect. We used a microfluidic chip.'
+  const moves = detectRhetoricalMoves(intro, 'introduction')
+  check('rhetorical moves detect background/gap/objective/method', moves.includes('background') && moves.includes('gap') && moves.includes('objective') && moves.includes('method'), JSON.stringify(moves))
+
+  const docs = [
+    { text: '# Introduction\n\nIn recent years, CO2 storage has become important. However, little is known. This study aims to quantify.', sourceId: 'a' },
+    { text: '# Introduction\n\nCO2 storage is critical. Yet few studies exist. We propose a new model.', sourceId: 'b' },
+  ]
+  const profile = computeJournalProfileFromDocuments(docs, { journal: 'Rhetoric Test', sampleSize: 2 })
+  const introMoves = profile.rhetoric.sectionMoves?.['introduction'] ?? []
+  check('rhetoric profile has section moves', introMoves.some((m) => m.move === 'background') && introMoves.some((m) => m.move === 'gap'), JSON.stringify(introMoves))
+  check('rhetoric profile has transitions', Array.isArray(profile.rhetoric.transitions) && profile.rhetoric.transitions.length > 0, JSON.stringify(profile.rhetoric.transitions))
+
+  const report = auditText(`# Introduction\n\n${intro}`, { profile: 'manuscript', journalProfile: profile })
+  const fitSection = report.journalFit?.sections.find((s) => s.name.toLowerCase() === 'introduction')
+  check('journal fit includes rhetorical metrics', !!fitSection && fitSection.metrics.some((m) => m.metric.includes('rhetorical')), JSON.stringify(fitSection?.metrics.map((m) => m.metric)))
+}
+
+console.log('=== 94. v1.6.1 Semantic Hardening（epistemic ratio TP/TN + claimDensity + spanKind + results_discussion）===')
+{
+  const single = (text) => computeJournalProfileFromDocuments(
+    [{ text: `# Results\n\n${text}`, sourceId: 's' }],
+    { journal: 'Semantic' },
+  ).structure.sections.find((s) => s.name === 'results')
+
+  const high = single('The treatment caused mortality.')
+  check('highCausal TP', high && high.highCausalRatio.median > 0, JSON.stringify(high?.highCausalRatio))
+
+  const assoc = single('The treatment was associated with mortality.')
+  check('highCausal TN associated', assoc && assoc.highCausalRatio.median === 0, JSON.stringify(assoc?.highCausalRatio))
+
+  const fig = single('Figure 2 shows the architecture.')
+  check('strongEvidence TN figure descriptive', fig && fig.strongEvidentialRatio.median === 0, JSON.stringify(fig?.strongEvidentialRatio))
+
+  const demo = single('The results demonstrate that X increased Y.')
+  check('strongEvidence TP', demo && demo.strongEvidentialRatio.median > 0, JSON.stringify(demo?.strongEvidentialRatio))
+
+  const hedge = single('X may suggest Y.')
+  check('hedgedClaim TP', hedge && hedge.hedgedClaimRatio.median > 0, JSON.stringify(hedge?.hedgedClaimRatio))
+
+  const scope = single('Under these conditions, X increased Y.')
+  check('scopeQualified TP', scope && scope.scopeQualifiedRatio.median > 0, JSON.stringify(scope?.scopeQualifiedRatio))
+
+  const nullR = single('No significant difference was observed.')
+  check('nullFinding TP', nullR && nullR.nullFindingRatio.median > 0, JSON.stringify(nullR?.nullFindingRatio))
+
+  const density = single('The treatment caused mortality.')
+  check('claimDensity present', density && density.claimDensity.median > 0, JSON.stringify(density?.claimDensity))
+
+  const spans = extractClaimSpans('We collected samples and measured temperature.')
+  check('spanKind procedural', spans.some((s) => s.spanKind === 'procedural'), JSON.stringify(spans.map((s) => s.spanKind)))
+
+  const combined = computeJournalProfileFromDocuments([{ text: '# Results and Discussion\n\nX increased Y.', sourceId: 's' }])
+  check('results_discussion canonical', combined.structure.sections.some((s) => s.name === 'results_discussion'), JSON.stringify(combined.structure.sections.map((s) => s.name)))
+}
+
+
+
 
 console.log('')
 console.log(`结果：${pass} 通过 / ${fail} 失败`)
