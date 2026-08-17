@@ -1,5 +1,6 @@
 # cordis.patch.yml 模板 —— 复制到 ~/.dsh/profiles/web/cordis.patch.yml
-# 占位符：<USERPROFILE> 替换为目标机器的用户目录（如 C:\Users\zhangsan）
+# 占位符：<USERPROFILE> 替换为目标机器的用户目录（如 C:\Users\zhangsan）；
+#         <USERPROFILE_URL> 替换为 file:///C:/Users/zhangsan 形式（把反斜杠换成斜杠）
 # 注意：remote-web-ui 的配置由 dsh-start.ps1 动态写入 settings.yaml（publicBaseUrl），
 #       这里不需要也不应该配置 autoTunnel / publicBaseUrl。
 
@@ -40,3 +41,18 @@
           - academic_search_server.py
         env:
           PUBMED_EMAIL: !!js process.env.PUBMED_EMAIL ?? ''
+
+# dsh-session-search: index-free cross-agent session search（手动挂载，非 bundle）
+# name 使用 <USERPROFILE_URL>（安装时替换成 file:///C:/Users/... 格式）
+- insert:
+    - id: dsh-session-search
+      name: 'file:///<USERPROFILE_URL>/Downloads/dsh-setup-kit/plugins-src/dsh-session-search/lib/index.js'
+      config:
+        sources:
+          dsh: true
+          codex: true
+          claude: true
+          pi: true
+          opencode: true
+        maxResults: 10
+        readWindow: 10

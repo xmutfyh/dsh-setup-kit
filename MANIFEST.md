@@ -1,9 +1,9 @@
 # MANIFEST — dsh-setup-kit 完美复刻包内容清单
 
-> 本包是源机器（2026-08-16）DSH 环境的完整快照。目标机器用 Codex 安装请照
+> 本包是源机器（2026-08-17）DSH 环境的完整快照。目标机器用 Codex 安装请照
 > [SETUP-CODEX.md](SETUP-CODEX.md) 逐步执行。
 
-## 插件（plugins-src/，8 个，全部已带补丁，link: 安装）
+## 插件（plugins-src/，9 个本地插件；其中 8 个用 link: 安装，dsh-session-search 手动挂载）
 
 | 目录 | 版本 | 功能 | 补丁 |
 |---|---|---|---|
@@ -15,8 +15,12 @@
 | dsh-plugin-anydoc | - | 任意文件→Markdown | - |
 | dsh-plugin-ocr | 0.1.0 | 本地 OCR（RapidOCR，需 pip 装 rapidocr_onnxruntime） | - |
 | dsh-plugin-writing-guard | 1.6.1 | 确定性 manuscript integrity guard + Journal Engine（Corpus-aware Journal Distillation + Epistemic Journal Fingerprint + Rhetorical Moves + Semantic Hardening）：Scholarship Lock（全方向）+ Epistemic Lock（因果/证据力+角色排除、hedge、claim-bound 守恒、claimAnchor 指纹、scope、alignment-uncertain、版本差距保护+不配对全局清单、exec.token 自动前后对比、event-level 指纹、invariant 恒显）+ 篇章统计层（paragraph-rhythm、sentence-rhythm-uniformity、repeated-discourse-scaffold、punctuation-scaffold-overload、coined-framework-language、generic-claim-candidate、summary-cliche-positional、local-citation-integrity、StyleProfile 节奏指纹）+ Journal Profile（computeJournalProfileFromDocuments、citation/figure split、claimDensity、spanKind、sectionMoves/transitions、results_discussion）+ findingKind + SKILL.md | ✅ Config 兼容 cordis 4（`export const Config`→`const DEFAULT_CONFIG`） |
+| dsh-session-search | 0.1.0 | 跨 Agent 会话搜索（dsh/Codex/Claude Code/pi/OpenCode，只读，无索引） | 手动挂载（非 bundle，走 cordis.patch.yml） |
 
-npm 插件（第 3 步安装，不在包内）：`@linxin666/dsh-web-ui-all@0.1.12`（任务看板/Git图谱/右侧面板/实时token/皮肤/SSH/宠物/手机远控）
+npm 插件（第 3 步安装，不在包内）：
+- `@linxin666/dsh-web-ui-all@0.1.15`（任务看板/Git图谱/右侧面板/实时token/皮肤/SSH/宠物/手机远控）
+- `dshmarket@1.8.0`（可视化插件市场）
+- `dsh-cost-meter`（GitHub: Han-1413141/dsh-cost-meter，当前 1.3.1，会话费用统计）
 
 ## 技能（skills/，21 个 + 2 资源目录）
 
@@ -40,7 +44,7 @@ ppt-master、web-access（浏览器 CDP 控制）、scientific-image2-visio 等�
 
 | 文件 | 目标 | 说明 |
 |---|---|---|
-| cordis.patch.yml.template | ~/.dsh/profiles/web/cordis.patch.yml | agent-instructions（只读 AGENTS.md）+ academic-search MCP（`<USERPROFILE>` 占位） |
+| cordis.patch.yml.template | ~/.dsh/profiles/web/cordis.patch.yml | agent-instructions（只读 AGENTS.md）+ academic-search MCP + dsh-session-search 手动挂载（`<USERPROFILE>` / `<USERPROFILE_URL>` 占位） |
 | settings.yaml.template | ~/.dsh/settings.yaml | provider（nuoda.vip 中转，用 OPENAI_API_KEY 环境变量）+ pet + 默认模型 |
 
 ## 配套

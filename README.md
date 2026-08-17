@@ -12,7 +12,7 @@
 1. 把 `dsh-setup-kit` 整个文件夹拷到新电脑 `C:\Users\<用户名>\Downloads\`（**装完别移动/删除**）
 2. 新电脑打开 Codex，告诉它：
    > 按 `C:\Users\<用户名>\Downloads\dsh-setup-kit\SETUP-CODEX.md` 逐步安装里面的 DSH 环境
-3. Codex 会：装 DSH → pnpm → web-ui 全家桶 → 7 个本地插件 → junction 修依赖 → 复制技能 → 部署管理器脚本 → 应用配置模板（替换占位符）→ Everything + launcher → 启动并验证
+3. Codex 会：装 DSH → pnpm → web-ui 全家桶 + dshmarket + dsh-cost-meter → 9 个本地插件 → junction 修依赖 → 复制技能 → 部署管理器脚本 → 应用配置模板（替换占位符）→ Everything + launcher → 启动并验证
 
 ## 前置
 
@@ -28,7 +28,7 @@
 dsh-setup-kit/
 ├── SETUP-CODEX.md        ← 给 Codex 的逐步安装指令（主入口）
 ├── MANIFEST.md           ← 组件清单与关键修复说明
-├── plugins-src/          ← 8 个本地插件（drag-and-drop / drop-to-path / writing-guard 已带补丁）
+├── plugins-src/          ← 9 个本地插件（drag-and-drop / drop-to-path / writing-guard 已带补丁；session-search 手动挂载）
 ├── skills/               ← 21 个技能
 ├── scripts/              ← dsh-start / dsh-restart / dsh-stop / dsh-patch-dragdrop
 ├── templates/            ← cordis.patch.yml / settings.yaml（占位符模板）

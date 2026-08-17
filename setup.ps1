@@ -1,4 +1,4 @@
-﻿# ============================================================================
+# ============================================================================
 # dsh-setup.ps1 — 一键把本套 DSH 插件/配置/启动器装到新电脑
 # 适用：已运行过 `npx -y @deepseek-ai/dsh web` 的 Windows + Node 22+ 机器
 # 用法：powershell -ExecutionPolicy Bypass -File setup.ps1 [-SkipSkills] [-SkipLauncher]
@@ -44,8 +44,8 @@ if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
 }
 Write-Ok "pnpm $((pnpm --version 2>$null))"
 
-# ---------- 3. cordis.patch.yml（agent-instructions + MCP，路径动态化） ----------
-Write-Step "写入 profile 补丁（agent-instructions 只读 AGENTS.md + 学术检索 MCP）"
+# ---------- 3. cordis.patch.yml（agent-instructions + MCP + dsh-session-search，路径动态化） ----------
+Write-Step "写入 profile 补丁（agent-instructions 只读 AGENTS.md + 学术检索 MCP + dsh-session-search）"
 $hasUv    = [bool](Get-Command uv -ErrorAction SilentlyContinue)
 $hasSkill = (-not $SkipSkills) -and (Test-Path (Join-Path $KitRoot "skills\nature-academic-search\mcp-server"))
 $patchLines = @(
@@ -99,15 +99,34 @@ if ($hasUv -and $hasSkill) {
   $why = if ($hasUv) { "技能未复制" } else { "未检测到 uv" }
   Write-Warn "跳过 MCP 配置（$why）；装好 uv 后可手动补，见 README"
 }
+# dsh-session-search: 手动挂载（非 bundle，不通过 dsh plugin add）
+$sessionSearchPath = Join-Path $KitRoot "plugins-src\dsh-session-search\lib\index.js"
+$sessionSearchUrl  = "file:///" + ($sessionSearchPath -replace '\\','/')
+$patchLines += @(
+  "",
+  "# dsh-session-search: index-free cross-agent session search（手动挂载，非 bundle）",
+  "- insert:",
+  "    - id: dsh-session-search",
+  "      name: '$sessionSearchUrl'",
+  "      config:",
+  "        sources:",
+  "          dsh: true",
+  "          codex: true",
+  "          claude: true",
+  "          pi: true",
+  "          opencode: true",
+  "        maxResults: 10",
+  "        readWindow: 10"
+)
 $patchLines | Set-Content -LiteralPath (Join-Path $profileDir "cordis.patch.yml") -Encoding UTF8
 Write-Ok "cordis.patch.yml 已写入"
 
-# ---------- 4. npm 插件（dsh-web-ui 全家桶） ----------
-Write-Step "安装 npm 插件（dsh-web-ui 全家桶）"
+# ---------- 4. npm / GitHub 插件（dsh-web-ui 全家桶 + dshmarket + dsh-cost-meter） ----------
+Write-Step "安装 npm / GitHub 插件（dsh-web-ui 全家桶 + dshmarket + dsh-cost-meter）"
 function Invoke-DshPlugin($argsLine) {
   & cmd /c "$dshCmd plugin --profile web $argsLine 2>&1"
 }
-Invoke-DshPlugin "add @linxin666/dsh-web-ui-all@0.1.12" | Out-Host
+Invoke-DshPlugin "add @linxin666/dsh-web-ui-all@0.1.15" | Out-Host
 $wsFile = Join-Path $profileDir "pnpm-workspace.yaml"
 $needsBuildAllow = $LASTEXITCODE -ne 0
 if ((Test-Path $wsFile) -and ((Get-Content $wsFile -Raw) -match "set this to true or false")) { $needsBuildAllow = $true }
@@ -122,13 +141,24 @@ if ($needsBuildAllow) {
     $content += "`nallowBuilds:`n  cloudflared: true`n  cpu-features: true`n  ssh2: true`n"
   }
   Set-Content -LiteralPath $wsFile -Value $content -Encoding UTF8
-  Invoke-DshPlugin "add @linxin666/dsh-web-ui-all@0.1.12" | Out-Host
+  Invoke-DshPlugin "add @linxin666/dsh-web-ui-all@0.1.15" | Out-Host
 }
-Write-Ok "dsh-web-ui-all 安装完成"
+Invoke-DshPlugin "add dshmarket@1.8.0" | Out-Host
+Invoke-DshPlugin "add github:Han-1413141/dsh-cost-meter" | Out-Host
+Write-Ok "npm / GitHub 插件安装完成"
 
 # ---------- 5. 本地 git 插件（link:） ----------
-Write-Step "安装本地插件（drag-and-drop / chat-import / file-claim / file-mentions / plugin-anydoc）"
-$localDirs = @("dsh-drag-and-drop","dsh-chat-import","dsh-file-claim","dsh-file-mentions","dsh-plugin-anydoc")
+Write-Step "安装本地插件（drag-and-drop / drop-to-path / chat-import / file-claim / file-mentions / plugin-anydoc / plugin-ocr / writing-guard）"
+$localDirs = @(
+  "dsh-drag-and-drop",
+  "dsh-drop-to-path",
+  "dsh-chat-import",
+  "dsh-file-claim",
+  "dsh-file-mentions",
+  "dsh-plugin-anydoc",
+  "dsh-plugin-ocr",
+  "dsh-plugin-writing-guard"
+)
 foreach ($d in $localDirs) {
   $p = Join-Path $KitRoot "plugins-src\$d"
   if (-not (Test-Path (Join-Path $p "package.json"))) { Write-Warn "跳过缺失的 $d"; continue }

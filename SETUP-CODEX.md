@@ -27,15 +27,17 @@ $env:PATH = "$gp;" + $env:PATH
 pnpm --version   # 应输出版本号
 ```
 
-## 3. 安装 npm 插件（dsh-web-ui 全家桶）
+## 3. 安装 npm / GitHub 插件（dsh-web-ui 全家桶 + dshmarket + dsh-cost-meter）
 
 ```powershell
-dsh plugin --profile web add @linxin666/dsh-web-ui-all@0.1.12
+dsh plugin --profile web add @linxin666/dsh-web-ui-all@0.1.15
+dsh plugin --profile web add dshmarket@1.8.0
+dsh plugin --profile web add github:Han-1413141/dsh-cost-meter
 ```
 若报 `ERR_PNPM_IGNORED_BUILDS`：编辑 `~\.dsh\profiles\web\pnpm-workspace.yaml`，
 把 `allowBuilds` 下的 `cloudflared / cpu-features / ssh2` 都设为 `true`，重跑上面命令。
 
-## 4. 安装 8 个本地插件（link:）
+## 4. 安装 8 个 link 本地插件 + 手动挂载 dsh-session-search
 
 逐个执行（路径用 `$Kit\plugins-src\<名>`）：
 
@@ -53,6 +55,11 @@ dsh plugin --profile web add "$Kit\plugins-src\dsh-plugin-writing-guard"
 > 这些包已带好补丁：drag-and-drop（-whole-filename + GBK 中文路径 + pasteBegin 输入框修复）、writing-guard（Config 兼容 cordis 4 修复）。
 > **不要**对它们执行 `dsh plugin update`，也不要重编译（会覆盖补丁）。
 > 提示：dsh-drag-and-drop 与 dsh-drop-to-path 功能相近，二选一或都用（drop-to-path 在发送时转路径，不碰输入框草稿）。
+
+`dsh-session-search` 不是 bundle 插件，不需要（也不能用）`dsh plugin add` 安装；
+它通过 `cordis.patch.yml` 手动挂载到 `plugins-src\dsh-session-search\lib\index.js`。
+第 8 步应用模板时会自动写入；如果手动改，参考 `templates/cordis.patch.yml.template` 里的
+`dsh-session-search` 块，并把 `name` 改成 `file:///C:/Users/<用户名>/Downloads/dsh-setup-kit/plugins-src/dsh-session-search/lib/index.js`。
 
 ## 5. 修复 link 插件的运行时依赖（junction，关键！）
 
@@ -109,9 +116,10 @@ $stop = "$env:USERPROFILE\Downloads\dsh-stop.ps1"
 ## 8. 应用配置模板
 
 ```powershell
-# cordis.patch.yml：把 <USERPROFILE> 替换成本机用户目录后复制
+# cordis.patch.yml：把 <USERPROFILE> 替换成本机用户目录、<USERPROFILE_URL> 替换成 file:/// 格式后复制
 $patch = Get-Content "$Kit\templates\cordis.patch.yml.template" -Raw -Encoding UTF8
 $patch = $patch -replace '<USERPROFILE>', $env:USERPROFILE
+$patch = $patch -replace '<USERPROFILE_URL>', ($env:USERPROFILE -replace '\\','/')
 [System.IO.File]::WriteAllText("$env:USERPROFILE\.dsh\profiles\web\cordis.patch.yml", $patch, (New-Object System.Text.UTF8Encoding($false)))
 # settings.yaml：复制模板（首次 dsh web 已生成默认文件，覆盖它）
 [System.IO.File]::WriteAllText("$env:USERPROFILE\.dsh\settings.yaml",
